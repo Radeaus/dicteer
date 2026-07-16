@@ -1,0 +1,16 @@
+# Persoonlijk / geheimen - NOOIT uploaden
+config.json
+discord_token.json
+history.json
+stats.json
+dicteer.log
+dicteer_crash.log
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Windows
+Thumbs.db
+desktop.ini
