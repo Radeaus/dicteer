@@ -1,84 +1,102 @@
 # Dicteer
 
-Lokale spraak-naar-tekst voor Windows, zoals Wispr Flow maar gratis en 100% offline. Draait op je NVIDIA GPU met Whisper (large-v3-turbo), herkent Nederlands en Engels automatisch.
+Local speech-to-text dictation for Windows — free, 100% offline, powered by Whisper (large-v3-turbo) on your own GPU. Press a hotkey, speak, and your words are pasted wherever your cursor is. Works in any app. Like Wispr Flow, but yours.
 
-## Installatie
+## Features
 
-1. Installeer [Python 3.10 t/m 3.12](https://www.python.org/downloads/) — vink **"Add python.exe to PATH"** aan.
-2. Dubbelklik op **install.bat** (eenmalig, duurt enkele minuten).
-3. Dubbelklik op **start.bat**. De eerste keer wordt het spraakmodel gedownload (~1,6 GB); daarna is alles offline.
+- **Dictate anywhere**: press `Ctrl+Shift+S`, speak, press again — your text is pasted into whatever app has focus
+- **~100 languages** with automatic detection (or pin one: Dutch, English, German, French, Spanish, Italian, Portuguese, Polish, Turkish, ...)
+- **Live preview**: see your words appear in the on-screen overlay while you speak
+- **100% private**: everything runs locally on your machine; audio never leaves your PC
+- **Discord integration**: automatically mute and/or deafen Discord while dictating (via the official Discord API), restored afterwards
+- **Virtual mic mute** (optional): while dictating, mute the virtual microphone (Voicemod, Voicemeeter, VB-Cable, ...) that other apps listen to — Discord, games, OBS and Teams hear nothing while Dicteer keeps hearing your real mic; restored afterwards. (Windows offers no true per-app mic muting, so this is the reliable way.)
+- **Smart media pause**: playing music/video is paused during recording and resumed afterwards — only what was actually playing
+- **Modern dark settings UI** (web-based) in English, Dutch, German, Spanish and French
+- **Projects** (optional): save dictations per project, add an AI instruction per project, and export or copy a whole project at once — ready to paste into your favorite AI model. Switch projects with one click in the overlay
+- **Smart overlay**: live waveform and preview while you speak, per-dictation toggle for auto-paste/auto-send, current project display — all without stealing focus from the app you're typing in
+- **Quality of life**: history page (view, copy and clean up dictations), statistics, microphone test meter, hotkey recorder, Esc to cancel, beeps with volume control, start with Windows, desktop shortcut
 
-install.bat zet ook een snelkoppeling **Dicteer** op je bureaublad — voortaan start je gewoon daarmee.
+## Requirements
 
-Er verschijnt een microfoontje in je systeemvak (rechtsonder). Groen = klaar voor gebruik.
+- Windows 10/11
+- [Python 3.10 or newer](https://www.python.org/downloads/) — check **"Add python.exe to PATH"** during installation
+- **GPU acceleration is NVIDIA-only** (the speech engine, CTranslate2, only supports CUDA). With an NVIDIA card (GTX 10-series or newer), transcription takes seconds.
+- **AMD and Intel GPUs are not supported for acceleration** — Dicteer detects this automatically and runs on the **CPU** instead. This works fine, just slower; pick the `medium` or `small` model for extra speed. The installer also skips the ~600 MB of NVIDIA libraries on those systems.
 
-## Gebruik
+## Installation
 
-Zet je cursor in een tekstveld (mail, Word, browser, waar dan ook):
+1. Download the latest release and extract it to a folder (e.g. `Documents\Dicteer`)
+2. Double-click **install.bat** (one-time, takes a few minutes)
+3. Start Dicteer with the **Dicteer** shortcut on your desktop (created by the installer) or **start.bat**
 
-- Druk **`Ctrl+Shift+S`** → opname start. Praat. Druk nogmaals **`Ctrl+Shift+S`** → de tekst wordt automatisch geplakt.
-- Piepje hoog = opname gestart, piepje laag = gestopt.
-- Tijdens de opname zie je onderin beeld een klein venstertje met geluidsbalkjes die meebewegen met je stem; tijdens het omzetten staat er "Bezig met omzetten...". Het verdwijnt vanzelf. Uitzetten kan met `"overlay": false` in config.json.
+On first start the speech model (~1.6 GB) is downloaded once; after that everything works offline. A microphone icon appears in the system tray — green means ready.
 
-Andere sneltoets? Pas `hotkey` aan in config.json (bijv. `"f9"`).
+## Usage
 
-**Stoppen**: rechtsklik op het tray-icoon → **Afsluiten**.
+Put your cursor in any text field:
 
-Kleuren van het tray-icoon: grijs = model laden, groen = klaar, rood = opname, oranje = bezig met omzetten.
+- Press **`Ctrl+Shift+S`** → recording starts (high beep, overlay appears). Speak. Press **`Ctrl+Shift+S`** again → your text is pasted (low beep).
+- Press **`Esc`** during a recording to cancel it.
+- High beep = recording started, low beep = stopped. Tray icon: grey = loading model, green = ready, red = recording, orange = transcribing.
+- With *auto-send* enabled, the overlay shows an **Auto-paste** chip during recording — click it to keep this one dictation from being sent automatically (handy when you spot a typo in the preview).
 
-## Instellingen
+**Quitting**: right-click the tray icon → Exit. Closing the settings window does *not* quit the app; it keeps running in the tray.
 
-Bij het starten opent het instellingenvenster vanzelf (uit te zetten via *Show this window at startup*). Het venster sluiten stopt Dicteer niet — hij blijft in de tray draaien; afsluiten doe je via rechtsklik op het tray-icoon → Exit. Het venster heeft een donker dashboard-uiterlijk met zijbalk (General / Recording / Discord / System) en naast Save en Cancel ook een **Apply**-knop die toepast zonder te sluiten. De interface is standaard Engels en is om te zetten naar Nederlands, Duits, Spaans of Frans (*Interface language*). Nieuw: *Deafen Discord* (je hoort zelf ook niets tijdens het dicteren) en *Pause media* (muziek/video pauzeert tijdens de opname en hervat daarna — werkt als play/pauze-schakelaar).
+## Settings
 
-**Dubbelklik op het tray-icoon** (of rechtsklik → *Instellingen...*) voor het instellingenvenster: daar stel je alles in — sneltoets, modus, taal, model, piep-volume, overlay, Discord, automatisch starten — zonder in config.json te hoeven werken. Opslaan past alles direct toe.
+The settings window opens at startup (disable via *Show this window at startup*). You can also open it any time by double-clicking the tray icon.
 
-Rechtsklik op het tray-icoon:
+- **General**: hotkey (click to record a new combination), mode (press to start/stop, or hold while speaking), dictation language, model, device, interface language
+- **Recording**: pause media, mute/deafen Discord, auto-send (Enter after pasting), microphone selection with live test meter, live preview, beeps and volume, overlay
+- **Dictionary**: words/names to recognize better, and replacement rules
+- **Projects**: enable projects, create/activate/remove them, set an AI instruction per project (added at the top of every export), export or copy a project
+- **History**: read back and copy recent dictations; view a project's dictations and delete individual ones before exporting
+- **Discord**: client ID/secret and the link button (see below)
+- **Statistics**: dictations, words, recording time, estimated time saved
+- **System**: start with Windows, history, clipboard restore, desktop shortcut, backup/restore, open config/log
 
-- **Modus**: aan/uit schakelen (standaard) of ingedrukt houden (walkietalkie).
-- **Taal**: automatisch detecteren (alle talen), of vast: Nederlands, Engels, Duits, Frans, Spaans, Italiaans, Portugees, Pools, Turks.
-- **Geschiedenis**: je laatste 10 dictaten; aanklikken zet de tekst weer op je klembord.
-- **Discord dempen tijdens opname** + **Discord koppelen / testen**: zie hieronder.
-- **Automatisch starten met Windows**: aan/uit, geen gedoe met de opstartmap.
+Changes are saved via the save bar that appears at the bottom whenever something changed. Closing the window keeps Dicteer running in the tray.
 
-Meer opties in `config.json` (via traymenu te openen):
+### Projects (optional)
 
-| Optie | Uitleg |
-|---|---|
-| `hotkey` | Sneltoets, bijv. `"ctrl+shift+s"` of `"f9"` |
-| `beep_volume` | Volume van de piepjes, `0.0` (stil) t/m `1.0` (hard); standaard `0.15` |
-| `overlay` | Zwevend venstertje onderin beeld tijdens opname/omzetten |
-| `suppress_hotkey` | Onderschep de sneltoets zodat die niets triggert in andere programma's |
-| `model` | `large-v3-turbo` (standaard), `large-v3` (nauwkeurigst), `medium` (lichter) |
-| `device` | `auto` probeert GPU, valt terug op CPU |
-| `restore_clipboard` | Zet je oude klembordinhoud terug na het plakken |
-| `history` | Geschiedenis bijhouden (staat lokaal in `history.json`) |
+Enable *Use projects* on the Projects page and create e.g. "Project A". Every dictation is now also saved under the active project (`projects\Project A.txt`). The overlay shows the active project during recording — click it to switch to the next project. Give the project an AI instruction (e.g. "Summarize these dictations into a spec") and use **Export**/**Copy**: the instruction is placed on top, so the result can be pasted straight into any AI chat.
 
-Na het wijzigen van config.json: rechtsklik op het tray-icoon → **Config herladen**. Een nieuwe sneltoets werkt direct; een ander model wordt op de achtergrond opnieuw geladen.
+## Discord auto-mute/deafen (optional)
 
-## Updaten
+Uses the official Discord API: while dictating, your Discord mic is muted (with the familiar mute icon, visible to your team) and restored afterwards. If you were already muted, you stay muted. One-time setup (~5 minutes):
 
-Nieuwe versie gekregen? Sluit Dicteer af, vervang `dicteer.py` (en evt. `README.md`) door de nieuwe versie en start opnieuw met `start.bat`. Je `config.json`, de venv en het gedownloade model blijven staan — `install.bat` hoeft niet opnieuw. Alleen als `requirements.txt` is veranderd voer je eenmalig uit: `venv\Scripts\python.exe -m pip install -r requirements.txt`.
+1. Go to <https://discord.com/developers/applications> → **New Application** → name it e.g. "Dicteer"
+2. **OAuth2** tab: copy the **Client ID**; click **Reset Secret** and copy the **Client Secret**. Under **Redirects**, add `http://127.0.0.1` and save
+3. Paste both into Dicteer's settings (Discord page) and click **Apply**
+4. Click **Link / test Discord** and approve the popup inside Discord — as a test your mic is muted for 2 seconds
 
-## Discord automatisch dempen
+The link is stored locally in `discord_token.json`; your secret never leaves your PC.
 
-Werkt via de **officiële Discord-API**: tijdens het dicteren gaat je Discord-mic op mute (mét het bekende icoontje, zichtbaar voor jou en je team) en daarna weer aan. Stond je zelf al op mute, dan blijf je gemute. Eenmalige setup, ~5 minuten:
+## Updating
 
-1. Ga naar <https://discord.com/developers/applications> → **New Application** → noem hem bijv. "Dicteer".
-2. Tabblad **OAuth2**: kopieer de **Client ID**; klik **Reset Secret** en kopieer de **Client Secret**. Voeg onder **Redirects** toe: `http://127.0.0.1` en sla op.
-3. Zet beide in config.json (traymenu → Config openen):
-   `"discord_client_id": "…"`, `"discord_client_secret": "…"`
-4. Traymenu → **Config herladen**, daarna **Discord koppelen / testen**. Keur het venster in Discord goed → ter controle gaat je mic 2 seconden op mute.
+Dicteer checks GitHub for new releases and shows a notification plus an update button in the settings when one is available. Manual update: quit Dicteer, replace `dicteer.py` (and any other changed files) with the new version, restart. Your config, the venv and the downloaded model are untouched. Only when `requirements.txt` changed, run once: `venv\Scripts\python.exe -m pip install -r requirements.txt`.
 
-Daarna gaat het vanzelf zolang **Discord dempen tijdens opname** aangevinkt staat. De koppeling staat lokaal in `discord_token.json`; je secret verlaat je pc niet.
+## Troubleshooting
 
-## Automatisch starten met Windows
+- **GPU not working?** Check `dicteer.log`. Dicteer automatically falls back to CPU. Note: only NVIDIA GPUs are supported — on AMD/Intel systems CPU mode is expected behavior.
+- **Nothing is pasted into an app running as administrator** — run Dicteer as administrator too.
+- **No recording?** Check Windows Settings → Privacy → Microphone.
+- **Crashes at startup (icon appears then disappears)?** Run `debug.bat` once — a console window stays open with the error. Also check `dicteer_crash.log`. If both are empty, check Windows Security → Protection history: apps with a global hotkey are sometimes blocked by Defender; add the Dicteer folder as an exclusion.
+- **Seems to quit right after starting?** It's probably already running — check the hidden tray icons (the ^ arrow in your taskbar). A second start shows a message.
 
-Rechtsklik op het tray-icoon → vink **Automatisch starten met Windows** aan. Klaar.
+## Privacy
 
-## Problemen
+All recognition happens on your machine. No audio, text or telemetry is sent anywhere. The only network traffic is the one-time model download (Hugging Face), the optional Discord link (Discord API) and the update check (GitHub API).
 
-- **Werkt de GPU niet?** Kijk in `dicteer.log`. Het programma valt automatisch terug op CPU (langzamer maar werkt altijd).
-- **Er wordt niets geplakt in een programma dat als administrator draait** — start Dicteer dan ook als administrator.
-- **Geen opname?** Controleer je microfoon: Windows-instellingen → Privacy → Microfoon.
-- **Crasht Dicteer bij het opstarten (icoontje verschijnt en verdwijnt)?** Start één keer met `debug.bat` — dan blijft er een venster open waarin je de foutmelding ziet. Kijk ook in `dicteer_crash.log`. Helpt dat niet: controleer in Windows-beveiliging → Beveiligingsgeschiedenis of Defender Dicteer/Python heeft geblokkeerd (programma's met een globale sneltoets worden soms ten onrechte tegengehouden) en voeg desnoods de Dicteer-map toe als uitsluiting.
-- **Lijkt Dicteer direct af te sluiten na start.bat?** Waarschijnlijk draait hij al — kijk bij de verborgen pictogrammen rechtsonder (pijltje omhoog in de taakbalk). Dicteer bewaakt dit nu zelf: een tweede start toont een melding.
+## Support
+
+Dicteer is free and open source. If it saves you time, you can support development here:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G7V323BNTU)
+
+Or visit <https://ko-fi.com/sudareq>. Thank you!
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              

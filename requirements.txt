@@ -5,13 +5,12 @@ keyboard
 pyperclip
 pystray
 pillow
-nvidia-cublas-cu12
-nvidia-cudnn-cu12
 pycaw
 psutil
 comtypes
-customtkinter
+pywebview
 winrt-runtime
 winrt-Windows.Media.Control
 winrt-Windows.Foundation
 winrt-Windows.Foundation.Collections
+mouse

@@ -4,7 +4,7 @@ Dicteer - lokale spraak-naar-tekst voor Windows.
 Zoals Wispr Flow, maar gratis en 100% lokaal (faster-whisper op je eigen GPU/CPU).
 Druk de sneltoets in, praat, en de tekst wordt geplakt in het venster waar je cursor staat.
 
-Twee modi (instelbaar via tray-icoon of config.json):
+Twee modi (instelbaar via het instellingenvenster, tray-icoon of config.json):
   - toggle: één keer drukken = start, nog een keer = stop (standaard)
   - hold:   sneltoets ingedrukt houden terwijl je praat (walkietalkie)
 """
@@ -20,7 +20,7 @@ import sys
 import threading
 import time
 
-VERSION = "v24"
+VERSION = "v29"
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
@@ -28,6 +28,11 @@ LOG_PATH = os.path.join(APP_DIR, "dicteer.log")
 HISTORY_PATH = os.path.join(APP_DIR, "history.json")
 DISCORD_TOKEN_PATH = os.path.join(APP_DIR, "discord_token.json")
 STATS_PATH = os.path.join(APP_DIR, "stats.json")
+VOCAB_PATH = os.path.join(APP_DIR, "vocabulary.txt")
+REPL_PATH = os.path.join(APP_DIR, "replacements.txt")
+DICTATIONS_PATH = os.path.join(APP_DIR, "dictations.txt")
+PROJECTS_PATH = os.path.join(APP_DIR, "projects.json")
+PROJECTS_DIR = os.path.join(APP_DIR, "projects")
 
 logging.basicConfig(
     filename=LOG_PATH,
@@ -82,8 +87,17 @@ DEFAULT_CONFIG = {
     "pause_media": False,        # media (Spotify/YouTube) pauzeren tijdens opname
     "ui_language": "en",         # taal van de interface: en/nl/de/es/fr
     "show_settings_on_start": True,
+    "check_updates": True,       # dagelijks controleren op nieuwe releases (GitHub)
+    "vocabulary": [],            # woorden/namen die beter herkend moeten worden
+    "replacements": {},          # vervangregels: {"fout": "goed"}
+    "auto_enter": False,         # Enter indrukken na het plakken (direct versturen)
+    "mouse_button": "none",      # zijknop muis als push-to-talk: "none", "x" of "x2"
+    "repaste_hotkey": "ctrl+shift+v",  # laatste dictaat opnieuw plakken
     "restore_clipboard": True,
     "min_seconds": 0.4,
+    "projects_enabled": False,   # dictaten per project bewaren (opt-in)
+    "current_project": "",       # actief project (leeg = geen)
+    "mute_other_apps": False,    # mic dempen voor alle andere apps tijdens opname
 }
 
 SAMPLE_RATE = 16000
@@ -115,6 +129,33 @@ UI_LANG = "en"
 
 TR = {
 "en": {
+ "backup_title": "Backup & export",
+ "backup": "Back up all settings to a zip file",
+ "restore": "Restore a backup",
+ "export_dict": "Export all dictations to a file (for ChatGPT / projects)",
+ "copy_dict": "Copy all dictations to the clipboard",
+ "btn_backup": "Back up...",
+ "btn_restore": "Restore...",
+ "btn_export": "Export...",
+ "btn_copy": "Copy",
+ "n_backup_ok": "Backup saved.",
+ "n_backup_fail": "Backup failed - see dicteer.log.",
+ "n_restore_ok": "Backup restored.",
+ "n_restore_fail": "Restore failed - see dicteer.log.",
+ "n_export_ok": "Dictations exported.",
+ "n_copied": "All dictations copied to the clipboard.",
+ "n_empty": "No dictations recorded yet.",
+ "dict_wrong": "Wrong word",
+ "dict_right": "Replace with",
+ "btn_add": "Add",
+ "dict_files_note": "Stored in vocabulary.txt and replacements.txt next to the app - easy to back up.",
+ "tab_dict": "Dictionary", "auto_enter": "Press Enter after pasting (auto-send, handy for AI chats)",
+ "dict_words": "Words and names to recognize better (one per line)", "dict_repl": "Replacements (one per line:  wrong => right)",
+ "mouse_ptt": "Mouse side button = push-to-talk", "repaste": "Hotkey: paste last dictation again",
+ "dc_setup_title": "How to link Discord (one-time, ~5 min)", "dc_portal": "Open Discord Developer Portal",
+ "dc_steps": "1. Open the Discord Developer Portal (button below) and click 'New Application'; name it e.g. 'Dicteer'.\n2. On the OAuth2 tab: copy the Client ID, click 'Reset Secret' and copy the Client Secret.\n3. Under 'Redirects', add  http://127.0.0.1  and save.\n4. Paste the Client ID and Secret above and click Apply.\n5. Click 'Link / test Discord' and approve the popup inside Discord - your mic is muted for 2 seconds as a test.",
+ "update_available": "Update available", "check_updates": "Check for updates automatically",
+ "n_update": "Dicteer {tag} is available! Open the settings to view it.",
  "mic": "Microphone", "live_preview": "Live preview while recording",
  "tab_stats": "Statistics", "st_dictations": "Dictations",
  "st_words": "Words dictated", "st_audio": "Total recording time",
@@ -133,7 +174,7 @@ TR = {
  "dc_mute": "Mute Discord microphone while recording",
  "dc_deafen": "Deafen Discord while recording (you hear nothing)",
  "dc_id": "Discord client ID", "dc_secret": "Discord client secret",
- "dc_link": "Link / test Discord", "dc_note": "One-time setup required - see README.",
+ "dc_link": "Link / test Discord", "dc_note": "One-time setup required - see the steps below.",
  "autostart": "Start with Windows", "history": "Keep history (last 10 dictations)",
  "restore_clip": "Restore clipboard after pasting", "show_start": "Show this window at startup",
  "shortcut": "Create desktop shortcut", "save": "Save", "cancel": "Cancel",
@@ -156,8 +197,77 @@ TR = {
  "n_shortcut_fail": "Creating the shortcut failed - see dicteer.log.",
  "n_mic_restored": "Your microphone was muted (by an older version); this has been fixed.",
  "n_rec_fail": "Recording failed to start: ",
+ "grp_controls": "Controls", "grp_language": "Language & model",
+ "grp_during": "While recording", "grp_behavior": "Behavior",
+ "grp_link": "Connection",
+ "hotkey_lbl": "Hotkey", "hotkey_sub": "Starts and stops dictation",
+ "model_lbl": "Model", "model_sub": "Reloaded after saving",
+ "seg_toggle": "Toggle", "seg_hold": "Hold",
+ "opt_none": "Off", "opt_auto": "Automatic",
+ "press_keys": "Press a key combination…",
+ "hk_click": "Click to record a shortcut", "edit_text": "Edit as text",
+ "unsaved": "You have unsaved changes", "undo": "Undo",
+ "repl_empty": "No replacement rules yet.", "btn_remove": "Remove",
+ "btn_create": "Create", "unit_hour": "h",
+ "beep_vol_lbl": "Beep volume",
+ "ov_enter_on": "Auto-paste on", "ov_enter_off": "Auto-paste off",
+ "auto_enter_sub": "Can be turned off per dictation with one click in the overlay",
+ "tab_projects": "Projects",
+ "projects_enable": "Use projects",
+ "projects_enable_sub": "New dictations are also saved under the active project",
+ "grp_proj_list": "Projects",
+ "proj_new_ph": "New project name…",
+ "proj_none": "No projects yet - add one above.",
+ "proj_active": "Active", "proj_set_active": "Activate",
+ "proj_count_suffix": "dictations",
+ "proj_remove_note": "Removing a project keeps its dictations file in the 'projects' folder next to the app.",
+ "tab_history": "History", "hist_recent": "Recent dictations",
+ "proj_entries_title": "Project dictations",
+ "proj_no_entries": "No dictations in this project yet.",
+ "proj_header_title": "AI instruction for the active project",
+ "proj_header_sub": "Added at the top of the export and clipboard copy",
+ "proj_header_ph": "E.g. Summarize these dictations…",
+ "btn_open": "Open", "mic_test": "Test microphone",
+ "n_copied_one": "Copied to the clipboard.",
+ "mute_apps": "Mute your virtual microphone while recording",
+ "mute_apps_sub": "Mutes virtual mics (Voicemod, Voicemeeter…) that other apps listen to, so nobody hears your dictation. Only works with such a virtual mic setup",
+ "mute_warn_novirt": "No virtual microphone found. Windows cannot mute a microphone per app, so without a virtual mic (e.g. Voicemod or VB-Cable) there is nothing to mute. Muting Discord does work - see the Discord page.",
+ "grp_mic": "Microphone",
+ "mic_auto": "Automatic (default device)",
+ "mic_sub": "Using a virtual microphone (Voicemod, Voicemeeter…)? Select your REAL microphone here",
+ "mute_warn_auto": "Select your real microphone above first - with 'Automatic', Dicteer can't tell which mic to protect, so nothing will be muted.",
+ "mute_warn_virtual": "This looks like a virtual microphone. Select your real microphone above, otherwise your dictation goes silent and nothing will be muted.",
+ "mute_ok": "Set up correctly: Dicteer protects this microphone and mutes your virtual mics while dictating.",
+ "n_cpu_mode": "No NVIDIA GPU found - Dicteer is using the processor. That works fine but is slower; the 'medium' or 'small' model is faster on CPU.",
 },
 "nl": {
+ "backup_title": "Backup & export",
+ "backup": "Alle instellingen opslaan in een zip-bestand",
+ "restore": "Een backup terugzetten",
+ "export_dict": "Alle dictaten exporteren naar een bestand (voor ChatGPT / projecten)",
+ "copy_dict": "Alle dictaten naar het klembord kopiëren",
+ "btn_backup": "Backup...",
+ "btn_restore": "Terugzetten...",
+ "btn_export": "Exporteren...",
+ "btn_copy": "Kopiëren",
+ "n_backup_ok": "Backup opgeslagen.",
+ "n_backup_fail": "Backup mislukt - zie dicteer.log.",
+ "n_restore_ok": "Backup teruggezet.",
+ "n_restore_fail": "Terugzetten mislukt - zie dicteer.log.",
+ "n_export_ok": "Dictaten geëxporteerd.",
+ "n_copied": "Alle dictaten gekopieerd naar het klembord.",
+ "n_empty": "Nog geen dictaten opgeslagen.",
+ "dict_wrong": "Fout woord",
+ "dict_right": "Vervangen door",
+ "btn_add": "Toevoegen",
+ "dict_files_note": "Opgeslagen in vocabulary.txt en replacements.txt naast het programma - makkelijk te backuppen.",
+ "tab_dict": "Woordenboek", "auto_enter": "Enter indrukken na het plakken (direct versturen, handig bij AI-chats)",
+ "dict_words": "Woorden en namen die beter herkend moeten worden (één per regel)", "dict_repl": "Vervangingen (één per regel:  fout => goed)",
+ "mouse_ptt": "Zijknop muis = push-to-talk", "repaste": "Sneltoets: laatste dictaat opnieuw plakken",
+ "dc_setup_title": "Discord koppelen (eenmalig, ±5 min)", "dc_portal": "Open Discord Developer Portal",
+ "dc_steps": "1. Open het Discord Developer Portal (knop hieronder) en klik op 'New Application'; noem hem bijv. 'Dicteer'.\n2. Ga naar het tabblad OAuth2: kopieer de Client ID, klik op 'Reset Secret' en kopieer de Client Secret.\n3. Voeg onder 'Redirects' toe:  http://127.0.0.1  en sla op.\n4. Plak de Client ID en Secret hierboven en klik op Toepassen.\n5. Klik op 'Discord koppelen / testen' en keur het venster in Discord goed - je mic gaat als test 2 seconden op mute.",
+ "update_available": "Update beschikbaar", "check_updates": "Automatisch controleren op updates",
+ "n_update": "Dicteer {tag} is beschikbaar! Open de instellingen om hem te bekijken.",
  "mic": "Microfoon", "live_preview": "Live meelezen tijdens opname",
  "tab_stats": "Statistieken", "st_dictations": "Dictaten",
  "st_words": "Gedicteerde woorden", "st_audio": "Totale opnametijd",
@@ -176,7 +286,7 @@ TR = {
  "dc_mute": "Discord-microfoon dempen tijdens opname",
  "dc_deafen": "Discord deafenen tijdens opname (je hoort niets)",
  "dc_id": "Discord client-ID", "dc_secret": "Discord client-secret",
- "dc_link": "Discord koppelen / testen", "dc_note": "Eenmalige setup nodig - zie README.",
+ "dc_link": "Discord koppelen / testen", "dc_note": "Eenmalige setup nodig - volg de stappen hieronder.",
  "autostart": "Starten met Windows", "history": "Geschiedenis bijhouden (laatste 10 dictaten)",
  "restore_clip": "Klembord herstellen na plakken", "show_start": "Dit venster tonen bij het opstarten",
  "shortcut": "Snelkoppeling op bureaublad maken", "save": "Opslaan", "cancel": "Annuleren",
@@ -199,8 +309,77 @@ TR = {
  "n_shortcut_fail": "Snelkoppeling maken mislukt - zie dicteer.log.",
  "n_mic_restored": "Je microfoon stond op mute (door een oudere versie); dat is hersteld.",
  "n_rec_fail": "Opname starten mislukt: ",
+ "grp_controls": "Bediening", "grp_language": "Taal & model",
+ "grp_during": "Tijdens de opname", "grp_behavior": "Gedrag",
+ "grp_link": "Koppeling",
+ "hotkey_lbl": "Sneltoets", "hotkey_sub": "Start en stopt het dicteren",
+ "model_lbl": "Model", "model_sub": "Wordt na opslaan opnieuw geladen",
+ "seg_toggle": "Drukken", "seg_hold": "Vasthouden",
+ "opt_none": "Uit", "opt_auto": "Automatisch",
+ "press_keys": "Druk een toetsencombinatie…",
+ "hk_click": "Klik om een sneltoets vast te leggen", "edit_text": "Als tekst bewerken",
+ "unsaved": "Je hebt niet-opgeslagen wijzigingen", "undo": "Ongedaan maken",
+ "repl_empty": "Nog geen vervangregels.", "btn_remove": "Verwijderen",
+ "btn_create": "Aanmaken", "unit_hour": "u",
+ "beep_vol_lbl": "Volume piepjes",
+ "ov_enter_on": "Automatisch plakken aan", "ov_enter_off": "Automatisch plakken uit",
+ "auto_enter_sub": "Per dictaat uit te zetten met één klik in de overlay",
+ "tab_projects": "Projecten",
+ "projects_enable": "Projecten gebruiken",
+ "projects_enable_sub": "Nieuwe dictaten worden ook onder het actieve project bewaard",
+ "grp_proj_list": "Projecten",
+ "proj_new_ph": "Naam nieuw project…",
+ "proj_none": "Nog geen projecten - voeg er hierboven een toe.",
+ "proj_active": "Actief", "proj_set_active": "Activeren",
+ "proj_count_suffix": "dictaten",
+ "proj_remove_note": "Bij verwijderen blijft het dictatenbestand staan in de map 'projects' naast het programma.",
+ "tab_history": "Geschiedenis", "hist_recent": "Laatste dictaten",
+ "proj_entries_title": "Projectdictaten",
+ "proj_no_entries": "Nog geen dictaten in dit project.",
+ "proj_header_title": "AI-instructie voor het actieve project",
+ "proj_header_sub": "Komt bovenaan de export en de klembordkopie",
+ "proj_header_ph": "Bijv. Vat deze dictaten samen…",
+ "btn_open": "Openen", "mic_test": "Microfoon testen",
+ "n_copied_one": "Gekopieerd naar het klembord.",
+ "mute_apps": "Je virtuele microfoon dempen tijdens de opname",
+ "mute_apps_sub": "Dempt virtuele mics (Voicemod, Voicemeeter…) waar andere apps naar luisteren - zo hoort niemand je dictaat. Werkt alleen met zo'n virtuele mic-setup",
+ "mute_warn_novirt": "Geen virtuele microfoon gevonden. Windows kan een microfoon niet per app dempen, dus zonder virtuele mic (bijv. Voicemod of VB-Cable) valt er niets te dempen. Discord dempen kan wél - zie de Discord-pagina.",
+ "grp_mic": "Microfoon",
+ "mic_auto": "Automatisch (standaardapparaat)",
+ "mic_sub": "Gebruik je een virtuele microfoon (Voicemod, Voicemeeter…)? Kies hier je ÉCHTE microfoon",
+ "mute_warn_auto": "Kies eerst hierboven je échte microfoon - bij 'Automatisch' weet Dicteer niet welke mic beschermd moet worden en wordt er niets gedempt.",
+ "mute_warn_virtual": "Dit lijkt een virtuele microfoon. Kies hierboven je échte microfoon, anders valt je dictaat stil en wordt er niets gedempt.",
+ "mute_ok": "Goed ingesteld: Dicteer beschermt deze microfoon en dempt je virtuele mics tijdens het dicteren.",
+ "n_cpu_mode": "Geen NVIDIA-videokaart gevonden - Dicteer gebruikt de processor. Dat werkt prima maar is trager; het model 'medium' of 'small' is sneller op de CPU.",
 },
 "de": {
+ "backup_title": "Backup & Export",
+ "backup": "Alle Einstellungen in einer Zip-Datei sichern",
+ "restore": "Ein Backup wiederherstellen",
+ "export_dict": "Alle Diktate in eine Datei exportieren (für ChatGPT / Projekte)",
+ "copy_dict": "Alle Diktate in die Zwischenablage kopieren",
+ "btn_backup": "Sichern...",
+ "btn_restore": "Wiederherstellen...",
+ "btn_export": "Exportieren...",
+ "btn_copy": "Kopieren",
+ "n_backup_ok": "Backup gespeichert.",
+ "n_backup_fail": "Backup fehlgeschlagen - siehe dicteer.log.",
+ "n_restore_ok": "Backup wiederhergestellt.",
+ "n_restore_fail": "Wiederherstellung fehlgeschlagen - siehe dicteer.log.",
+ "n_export_ok": "Diktate exportiert.",
+ "n_copied": "Alle Diktate in die Zwischenablage kopiert.",
+ "n_empty": "Noch keine Diktate gespeichert.",
+ "dict_wrong": "Falsches Wort",
+ "dict_right": "Ersetzen durch",
+ "btn_add": "Hinzufügen",
+ "dict_files_note": "Gespeichert in vocabulary.txt und replacements.txt neben dem Programm - leicht zu sichern.",
+ "tab_dict": "Wörterbuch", "auto_enter": "Nach dem Einfügen Enter drücken (direkt senden, praktisch für KI-Chats)",
+ "dict_words": "Wörter und Namen zur besseren Erkennung (eins pro Zeile)", "dict_repl": "Ersetzungen (eine pro Zeile:  falsch => richtig)",
+ "mouse_ptt": "Maus-Seitentaste = Push-to-talk", "repaste": "Tastenkürzel: letztes Diktat erneut einfügen",
+ "dc_setup_title": "Discord verknüpfen (einmalig, ca. 5 Min.)", "dc_portal": "Discord Developer Portal öffnen",
+ "dc_steps": "1. Öffne das Discord Developer Portal (Button unten) und klicke auf 'New Application'; nenne sie z. B. 'Dicteer'.\n2. Im Tab OAuth2: kopiere die Client-ID, klicke auf 'Reset Secret' und kopiere das Client-Secret.\n3. Füge unter 'Redirects' hinzu:  http://127.0.0.1  und speichere.\n4. Füge Client-ID und Secret oben ein und klicke auf Übernehmen.\n5. Klicke auf 'Discord verknüpfen / testen' und bestätige das Fenster in Discord - dein Mikro wird zum Test 2 Sekunden stummgeschaltet.",
+ "update_available": "Update verfügbar", "check_updates": "Automatisch nach Updates suchen",
+ "n_update": "Dicteer {tag} ist verfügbar! Öffne die Einstellungen.",
  "mic": "Mikrofon", "live_preview": "Live-Vorschau während der Aufnahme",
  "tab_stats": "Statistiken", "st_dictations": "Diktate",
  "st_words": "Diktierte Wörter", "st_audio": "Gesamte Aufnahmezeit",
@@ -219,7 +398,7 @@ TR = {
  "dc_mute": "Discord-Mikrofon während der Aufnahme stummschalten",
  "dc_deafen": "Discord während der Aufnahme deafen (du hörst nichts)",
  "dc_id": "Discord Client-ID", "dc_secret": "Discord Client-Secret",
- "dc_link": "Discord verknüpfen / testen", "dc_note": "Einmalige Einrichtung nötig - siehe README.",
+ "dc_link": "Discord verknüpfen / testen", "dc_note": "Einmalige Einrichtung nötig - siehe Schritte unten.",
  "autostart": "Mit Windows starten", "history": "Verlauf behalten (letzte 10 Diktate)",
  "restore_clip": "Zwischenablage nach dem Einfügen wiederherstellen", "show_start": "Dieses Fenster beim Start anzeigen",
  "shortcut": "Desktop-Verknüpfung erstellen", "save": "Speichern", "cancel": "Abbrechen",
@@ -242,8 +421,75 @@ TR = {
  "n_shortcut_fail": "Verknüpfung fehlgeschlagen - siehe dicteer.log.",
  "n_mic_restored": "Dein Mikrofon war stummgeschaltet (durch eine ältere Version); behoben.",
  "n_rec_fail": "Aufnahme konnte nicht starten: ",
+ "grp_controls": "Bedienung", "grp_language": "Sprache & Modell",
+ "grp_during": "Während der Aufnahme", "grp_behavior": "Verhalten",
+ "grp_link": "Verknüpfung",
+ "hotkey_lbl": "Tastenkürzel", "hotkey_sub": "Startet und stoppt das Diktieren",
+ "model_lbl": "Modell", "model_sub": "Wird nach dem Speichern neu geladen",
+ "seg_toggle": "Drücken", "seg_hold": "Halten",
+ "opt_none": "Aus", "opt_auto": "Automatisch",
+ "press_keys": "Tastenkombination drücken…",
+ "hk_click": "Klicken, um ein Kürzel aufzunehmen", "edit_text": "Als Text bearbeiten",
+ "unsaved": "Du hast ungespeicherte Änderungen", "undo": "Rückgängig",
+ "repl_empty": "Noch keine Ersetzungsregeln.", "btn_remove": "Entfernen",
+ "btn_create": "Erstellen", "unit_hour": "Std.",
+ "beep_vol_lbl": "Lautstärke der Signaltöne",
+ "ov_enter_on": "Auto-Einfügen an", "ov_enter_off": "Auto-Einfügen aus",
+ "auto_enter_sub": "Pro Diktat per Klick im Overlay abschaltbar",
+ "tab_projects": "Projekte", "projects_enable": "Projekte verwenden",
+ "projects_enable_sub": "Neue Diktate werden zusätzlich im aktiven Projekt gespeichert",
+ "grp_proj_list": "Projekte", "proj_new_ph": "Name des neuen Projekts…",
+ "proj_none": "Noch keine Projekte - füge oben eins hinzu.",
+ "proj_active": "Aktiv", "proj_set_active": "Aktivieren",
+ "proj_count_suffix": "Diktate",
+ "proj_remove_note": "Beim Entfernen bleibt die Diktatdatei im Ordner 'projects' neben dem Programm erhalten.",
+ "tab_history": "Verlauf", "hist_recent": "Letzte Diktate",
+ "proj_entries_title": "Projekt-Diktate",
+ "proj_no_entries": "Noch keine Diktate in diesem Projekt.",
+ "proj_header_title": "KI-Anweisung für das aktive Projekt",
+ "proj_header_sub": "Steht oben im Export und in der Zwischenablage-Kopie",
+ "proj_header_ph": "Z. B. Fasse diese Diktate zusammen…",
+ "btn_open": "Öffnen", "mic_test": "Mikrofon testen",
+ "n_copied_one": "In die Zwischenablage kopiert.",
+ "mute_apps": "Virtuelles Mikrofon während der Aufnahme stummschalten",
+ "mute_apps_sub": "Schaltet virtuelle Mikros (Voicemod, Voicemeeter…) stumm, die andere Apps abhören - so hört niemand dein Diktat. Funktioniert nur mit so einem virtuellen Mikro-Setup",
+ "mute_warn_novirt": "Kein virtuelles Mikrofon gefunden. Windows kann ein Mikrofon nicht pro App stummschalten - ohne virtuelles Mikro (z. B. Voicemod oder VB-Cable) gibt es nichts stummzuschalten. Discord geht trotzdem - siehe die Discord-Seite.",
+ "grp_mic": "Mikrofon",
+ "mic_auto": "Automatisch (Standardgerät)",
+ "mic_sub": "Nutzt du ein virtuelles Mikrofon (Voicemod, Voicemeeter…)? Wähle hier dein ECHTES Mikrofon",
+ "mute_warn_auto": "Wähle zuerst oben dein echtes Mikrofon - bei 'Automatisch' weiß Dicteer nicht, welches Mikro geschützt werden soll, und es wird nichts stummgeschaltet.",
+ "mute_warn_virtual": "Das sieht nach einem virtuellen Mikrofon aus. Wähle oben dein echtes Mikrofon, sonst verstummt dein Diktat und es wird nichts stummgeschaltet.",
+ "mute_ok": "Richtig eingerichtet: Dicteer schützt dieses Mikrofon und schaltet deine virtuellen Mikros beim Diktieren stumm.",
+ "n_cpu_mode": "Keine NVIDIA-Grafikkarte gefunden - Dicteer nutzt den Prozessor. Das funktioniert, ist aber langsamer; das Modell 'medium' oder 'small' ist auf der CPU schneller.",
 },
 "es": {
+ "backup_title": "Copia y exportación",
+ "backup": "Guardar todos los ajustes en un zip",
+ "restore": "Restaurar una copia",
+ "export_dict": "Exportar todos los dictados a un archivo (para ChatGPT / proyectos)",
+ "copy_dict": "Copiar todos los dictados al portapapeles",
+ "btn_backup": "Guardar...",
+ "btn_restore": "Restaurar...",
+ "btn_export": "Exportar...",
+ "btn_copy": "Copiar",
+ "n_backup_ok": "Copia guardada.",
+ "n_backup_fail": "Error en la copia - ver dicteer.log.",
+ "n_restore_ok": "Copia restaurada.",
+ "n_restore_fail": "Error al restaurar - ver dicteer.log.",
+ "n_export_ok": "Dictados exportados.",
+ "n_copied": "Todos los dictados copiados al portapapeles.",
+ "n_empty": "Aún no hay dictados guardados.",
+ "dict_wrong": "Palabra errónea",
+ "dict_right": "Sustituir por",
+ "btn_add": "Añadir",
+ "dict_files_note": "Guardado en vocabulary.txt y replacements.txt junto al programa - fácil de respaldar.",
+ "tab_dict": "Diccionario", "auto_enter": "Pulsar Enter tras pegar (envío automático, útil en chats de IA)",
+ "dict_words": "Palabras y nombres a reconocer mejor (uno por línea)", "dict_repl": "Sustituciones (una por línea:  mal => bien)",
+ "mouse_ptt": "Botón lateral del ratón = pulsar para hablar", "repaste": "Atajo: pegar de nuevo el último dictado",
+ "dc_setup_title": "Vincular Discord (una vez, ~5 min)", "dc_portal": "Abrir Discord Developer Portal",
+ "dc_steps": "1. Abre el Discord Developer Portal (botón de abajo) y haz clic en 'New Application'; llámala p. ej. 'Dicteer'.\n2. En la pestaña OAuth2: copia el Client ID, haz clic en 'Reset Secret' y copia el Client Secret.\n3. En 'Redirects' añade  http://127.0.0.1  y guarda.\n4. Pega el Client ID y el Secret arriba y pulsa Aplicar.\n5. Pulsa 'Vincular / probar Discord' y aprueba la ventana en Discord: tu micro se silencia 2 segundos como prueba.",
+ "update_available": "Actualización disponible", "check_updates": "Buscar actualizaciones automáticamente",
+ "n_update": "¡Dicteer {tag} está disponible! Abre los ajustes para verlo.",
  "mic": "Micrófono", "live_preview": "Vista previa en vivo durante la grabación",
  "tab_stats": "Estadísticas", "st_dictations": "Dictados",
  "st_words": "Palabras dictadas", "st_audio": "Tiempo total de grabación",
@@ -262,7 +508,7 @@ TR = {
  "dc_mute": "Silenciar el micrófono de Discord durante la grabación",
  "dc_deafen": "Ensordecer Discord durante la grabación (no oyes nada)",
  "dc_id": "ID de cliente de Discord", "dc_secret": "Secreto de cliente de Discord",
- "dc_link": "Vincular / probar Discord", "dc_note": "Requiere configuración única - ver README.",
+ "dc_link": "Vincular / probar Discord", "dc_note": "Requiere configuración única: sigue los pasos de abajo.",
  "autostart": "Iniciar con Windows", "history": "Guardar historial (últimos 10 dictados)",
  "restore_clip": "Restaurar el portapapeles tras pegar", "show_start": "Mostrar esta ventana al iniciar",
  "shortcut": "Crear acceso directo en el escritorio", "save": "Guardar", "cancel": "Cancelar",
@@ -285,8 +531,75 @@ TR = {
  "n_shortcut_fail": "No se pudo crear el acceso directo - ver dicteer.log.",
  "n_mic_restored": "Tu micrófono estaba silenciado (por una versión anterior); corregido.",
  "n_rec_fail": "No se pudo iniciar la grabación: ",
+ "grp_controls": "Controles", "grp_language": "Idioma y modelo",
+ "grp_during": "Durante la grabación", "grp_behavior": "Comportamiento",
+ "grp_link": "Conexión",
+ "hotkey_lbl": "Atajo de teclado", "hotkey_sub": "Inicia y detiene el dictado",
+ "model_lbl": "Modelo", "model_sub": "Se recarga después de guardar",
+ "seg_toggle": "Pulsar", "seg_hold": "Mantener",
+ "opt_none": "No", "opt_auto": "Automático",
+ "press_keys": "Pulsa una combinación de teclas…",
+ "hk_click": "Haz clic para grabar un atajo", "edit_text": "Editar como texto",
+ "unsaved": "Tienes cambios sin guardar", "undo": "Deshacer",
+ "repl_empty": "Aún no hay reglas de sustitución.", "btn_remove": "Quitar",
+ "btn_create": "Crear", "unit_hour": "h",
+ "beep_vol_lbl": "Volumen de los pitidos",
+ "ov_enter_on": "Pegado automático: sí", "ov_enter_off": "Pegado automático: no",
+ "auto_enter_sub": "Se puede desactivar por dictado con un clic en el overlay",
+ "tab_projects": "Proyectos", "projects_enable": "Usar proyectos",
+ "projects_enable_sub": "Los nuevos dictados también se guardan en el proyecto activo",
+ "grp_proj_list": "Proyectos", "proj_new_ph": "Nombre del nuevo proyecto…",
+ "proj_none": "Aún no hay proyectos: añade uno arriba.",
+ "proj_active": "Activo", "proj_set_active": "Activar",
+ "proj_count_suffix": "dictados",
+ "proj_remove_note": "Al eliminar un proyecto, su archivo de dictados se conserva en la carpeta 'projects'.",
+ "tab_history": "Historial", "hist_recent": "Últimos dictados",
+ "proj_entries_title": "Dictados del proyecto",
+ "proj_no_entries": "Aún no hay dictados en este proyecto.",
+ "proj_header_title": "Instrucción de IA para el proyecto activo",
+ "proj_header_sub": "Aparece al principio de la exportación y de la copia",
+ "proj_header_ph": "P. ej. Resume estos dictados…",
+ "btn_open": "Abrir", "mic_test": "Probar micrófono",
+ "n_copied_one": "Copiado al portapapeles.",
+ "mute_apps": "Silenciar tu micrófono virtual durante la grabación",
+ "mute_apps_sub": "Silencia micros virtuales (Voicemod, Voicemeeter…) que escuchan otras apps: así nadie oye tu dictado. Solo funciona con ese tipo de micro virtual",
+ "mute_warn_novirt": "No se encontró ningún micrófono virtual. Windows no puede silenciar un micrófono por aplicación; sin un micro virtual (p. ej. Voicemod o VB-Cable) no hay nada que silenciar. Discord sí funciona - mira la página de Discord.",
+ "grp_mic": "Micrófono",
+ "mic_auto": "Automático (dispositivo predeterminado)",
+ "mic_sub": "¿Usas un micrófono virtual (Voicemod, Voicemeeter…)? Selecciona aquí tu micrófono REAL",
+ "mute_warn_auto": "Selecciona primero arriba tu micrófono real: con 'Automático', Dicteer no sabe qué micro proteger y no se silenciará nada.",
+ "mute_warn_virtual": "Esto parece un micrófono virtual. Selecciona arriba tu micrófono real; de lo contrario tu dictado se queda en silencio y no se silenciará nada.",
+ "mute_ok": "Configurado correctamente: Dicteer protege este micrófono y silencia tus micros virtuales al dictar.",
+ "n_cpu_mode": "No se encontró una GPU NVIDIA: Dicteer usa el procesador. Funciona bien pero es más lento; el modelo 'medium' o 'small' es más rápido en CPU.",
 },
 "fr": {
+ "backup_title": "Sauvegarde et export",
+ "backup": "Sauvegarder tous les paramètres dans un zip",
+ "restore": "Restaurer une sauvegarde",
+ "export_dict": "Exporter toutes les dictées dans un fichier (pour ChatGPT / projets)",
+ "copy_dict": "Copier toutes les dictées dans le presse-papiers",
+ "btn_backup": "Sauvegarder...",
+ "btn_restore": "Restaurer...",
+ "btn_export": "Exporter...",
+ "btn_copy": "Copier",
+ "n_backup_ok": "Sauvegarde enregistrée.",
+ "n_backup_fail": "Échec de la sauvegarde - voir dicteer.log.",
+ "n_restore_ok": "Sauvegarde restaurée.",
+ "n_restore_fail": "Échec de la restauration - voir dicteer.log.",
+ "n_export_ok": "Dictées exportées.",
+ "n_copied": "Toutes les dictées copiées dans le presse-papiers.",
+ "n_empty": "Aucune dictée enregistrée pour l'instant.",
+ "dict_wrong": "Mot erroné",
+ "dict_right": "Remplacer par",
+ "btn_add": "Ajouter",
+ "dict_files_note": "Enregistré dans vocabulary.txt et replacements.txt à côté du programme - facile à sauvegarder.",
+ "tab_dict": "Dictionnaire", "auto_enter": "Appuyer sur Entrée après le collage (envoi auto, pratique pour les chats IA)",
+ "dict_words": "Mots et noms à mieux reconnaître (un par ligne)", "dict_repl": "Remplacements (un par ligne :  faux => correct)",
+ "mouse_ptt": "Bouton latéral souris = appuyer pour parler", "repaste": "Raccourci : recoller la dernière dictée",
+ "dc_setup_title": "Lier Discord (une fois, ~5 min)", "dc_portal": "Ouvrir le Discord Developer Portal",
+ "dc_steps": "1. Ouvrez le Discord Developer Portal (bouton ci-dessous) et cliquez sur 'New Application' ; nommez-la p. ex. 'Dicteer'.\n2. Onglet OAuth2 : copiez le Client ID, cliquez sur 'Reset Secret' et copiez le Client Secret.\n3. Sous 'Redirects', ajoutez  http://127.0.0.1  puis enregistrez.\n4. Collez le Client ID et le Secret ci-dessus et cliquez sur Appliquer.\n5. Cliquez sur 'Lier / tester Discord' et approuvez la fenêtre dans Discord : votre micro est coupé 2 secondes en test.",
+ "update_available": "Mise à jour disponible", "check_updates": "Rechercher les mises à jour automatiquement",
+ "n_update": "Dicteer {tag} est disponible ! Ouvrez les paramètres.",
  "mic": "Microphone", "live_preview": "Aperçu en direct pendant l'enregistrement",
  "tab_stats": "Statistiques", "st_dictations": "Dictées",
  "st_words": "Mots dictés", "st_audio": "Durée totale d'enregistrement",
@@ -305,7 +618,7 @@ TR = {
  "dc_mute": "Couper le micro Discord pendant l'enregistrement",
  "dc_deafen": "Mettre Discord en sourdine pendant l'enregistrement (vous n'entendez rien)",
  "dc_id": "ID client Discord", "dc_secret": "Secret client Discord",
- "dc_link": "Lier / tester Discord", "dc_note": "Configuration unique requise - voir README.",
+ "dc_link": "Lier / tester Discord", "dc_note": "Configuration unique requise - voir les étapes ci-dessous.",
  "autostart": "Démarrer avec Windows", "history": "Conserver l'historique (10 dernières dictées)",
  "restore_clip": "Restaurer le presse-papiers après collage", "show_start": "Afficher cette fenêtre au démarrage",
  "shortcut": "Créer un raccourci sur le bureau", "save": "Enregistrer", "cancel": "Annuler",
@@ -328,6 +641,46 @@ TR = {
  "n_shortcut_fail": "Échec de la création du raccourci - voir dicteer.log.",
  "n_mic_restored": "Votre micro était coupé (par une ancienne version) ; corrigé.",
  "n_rec_fail": "Impossible de démarrer l'enregistrement : ",
+ "grp_controls": "Commandes", "grp_language": "Langue et modèle",
+ "grp_during": "Pendant l'enregistrement", "grp_behavior": "Comportement",
+ "grp_link": "Connexion",
+ "hotkey_lbl": "Raccourci clavier", "hotkey_sub": "Démarre et arrête la dictée",
+ "model_lbl": "Modèle", "model_sub": "Rechargé après l'enregistrement",
+ "seg_toggle": "Appuyer", "seg_hold": "Maintenir",
+ "opt_none": "Non", "opt_auto": "Automatique",
+ "press_keys": "Appuyez sur une combinaison de touches…",
+ "hk_click": "Cliquez pour enregistrer un raccourci", "edit_text": "Modifier comme texte",
+ "unsaved": "Vous avez des modifications non enregistrées", "undo": "Annuler",
+ "repl_empty": "Aucune règle de remplacement pour l'instant.", "btn_remove": "Supprimer",
+ "btn_create": "Créer", "unit_hour": "h",
+ "beep_vol_lbl": "Volume des bips",
+ "ov_enter_on": "Collage auto activé", "ov_enter_off": "Collage auto désactivé",
+ "auto_enter_sub": "Désactivable par dictée d'un clic dans l'overlay",
+ "tab_projects": "Projets", "projects_enable": "Utiliser les projets",
+ "projects_enable_sub": "Les nouvelles dictées sont aussi enregistrées dans le projet actif",
+ "grp_proj_list": "Projets", "proj_new_ph": "Nom du nouveau projet…",
+ "proj_none": "Pas encore de projets - ajoutez-en un ci-dessus.",
+ "proj_active": "Actif", "proj_set_active": "Activer",
+ "proj_count_suffix": "dictées",
+ "proj_remove_note": "La suppression d'un projet conserve son fichier de dictées dans le dossier 'projects'.",
+ "tab_history": "Historique", "hist_recent": "Dernières dictées",
+ "proj_entries_title": "Dictées du projet",
+ "proj_no_entries": "Pas encore de dictées dans ce projet.",
+ "proj_header_title": "Instruction IA pour le projet actif",
+ "proj_header_sub": "Placée en tête de l'export et de la copie",
+ "proj_header_ph": "Par ex. Résume ces dictées…",
+ "btn_open": "Ouvrir", "mic_test": "Tester le micro",
+ "n_copied_one": "Copié dans le presse-papiers.",
+ "mute_apps": "Couper votre micro virtuel pendant l'enregistrement",
+ "mute_apps_sub": "Coupe les micros virtuels (Voicemod, Voicemeeter…) écoutés par les autres applications : personne n'entend votre dictée. Ne fonctionne qu'avec une telle configuration de micro virtuel",
+ "mute_warn_novirt": "Aucun micro virtuel trouvé. Windows ne peut pas couper un micro par application ; sans micro virtuel (par ex. Voicemod ou VB-Cable), il n'y a rien à couper. Discord fonctionne quand même - voir la page Discord.",
+ "grp_mic": "Microphone",
+ "mic_auto": "Automatique (périphérique par défaut)",
+ "mic_sub": "Vous utilisez un micro virtuel (Voicemod, Voicemeeter…) ? Sélectionnez ici votre VRAI micro",
+ "mute_warn_auto": "Choisissez d'abord votre vrai micro ci-dessus - avec « Automatique », Dicteer ne sait pas quel micro protéger et rien ne sera coupé.",
+ "mute_warn_virtual": "Ceci ressemble à un micro virtuel. Choisissez votre vrai micro ci-dessus, sinon votre dictée devient muette et rien ne sera coupé.",
+ "mute_ok": "Bien configuré : Dicteer protège ce micro et coupe vos micros virtuels pendant la dictée.",
+ "n_cpu_mode": "Aucune carte NVIDIA trouvée - Dicteer utilise le processeur. Cela fonctionne mais est plus lent ; le modèle « medium » ou « small » est plus rapide sur CPU.",
 },
 }
 
@@ -361,6 +714,61 @@ def save_config(cfg):
         log.warning("config.json niet opgeslagen: %s", e)
 
 
+# ---------------------------------------------------------------- woordenboek
+
+def load_vocabulary():
+    try:
+        with open(VOCAB_PATH, encoding="utf-8") as f:
+            return [r.strip() for r in f if r.strip()]
+    except Exception:
+        return []
+
+
+def save_vocabulary(items):
+    try:
+        with open(VOCAB_PATH, "w", encoding="utf-8") as f:
+            f.write("\n".join(items) + "\n")
+    except Exception:
+        log.exception("vocabulary.txt niet opgeslagen")
+
+
+def load_replacements():
+    d = {}
+    try:
+        with open(REPL_PATH, encoding="utf-8") as f:
+            for regel in f:
+                if "=>" in regel:
+                    a, b = regel.split("=>", 1)
+                    if a.strip():
+                        d[a.strip()] = b.strip()
+    except Exception:
+        pass
+    return d
+
+
+def save_replacements(d):
+    try:
+        with open(REPL_PATH, "w", encoding="utf-8") as f:
+            for a, b in d.items():
+                f.write(f"{a} => {b}\n")
+    except Exception:
+        log.exception("replacements.txt niet opgeslagen")
+
+
+def apply_replacements(text, repl):
+    """Pas de vervangregels toe (hoofdletter-ongevoelig)."""
+    import re
+    for fout, goed in (repl or {}).items():
+        if not str(fout).strip():
+            continue
+        try:
+            text = re.sub(re.escape(str(fout)), str(goed), text,
+                          flags=re.IGNORECASE)
+        except Exception:
+            continue
+    return text
+
+
 # ---------------------------------------------------------------- geschiedenis
 
 def load_history():
@@ -377,6 +785,61 @@ def save_history(hist):
             json.dump(hist, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------- projecten
+
+def load_projects_data():
+    """projects.json: {"projects": [namen], "headers": {naam: AI-instructie}}.
+    Ondersteunt ook het oude formaat (kale lijst met namen)."""
+    try:
+        with open(PROJECTS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):  # oud formaat
+            return {"projects": [str(n) for n in data][:200], "headers": {}}
+        return {"projects": [str(n) for n in data.get("projects", [])][:200],
+                "headers": {str(k): str(v)
+                            for k, v in dict(data.get("headers", {})).items()}}
+    except Exception:
+        return {"projects": [], "headers": {}}
+
+
+def save_projects_data(data):
+    try:
+        with open(PROJECTS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception:
+        log.exception("projects.json niet opgeslagen")
+
+
+def load_projects():
+    return load_projects_data()["projects"]
+
+
+def safe_filename(naam):
+    import re
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(naam)).strip() or "project"
+
+
+def project_file(naam):
+    return os.path.join(PROJECTS_DIR, safe_filename(naam) + ".txt")
+
+
+def project_count(naam):
+    try:
+        with open(project_file(naam), encoding="utf-8") as f:
+            return sum(1 for r in f if r.strip())
+    except Exception:
+        return 0
+
+
+def append_project_entry(naam, text):
+    try:
+        os.makedirs(PROJECTS_DIR, exist_ok=True)
+        with open(project_file(naam), "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M')}] {text}\n")
+    except Exception:
+        log.exception("Project-dictaat niet opgeslagen")
 
 
 # ---------------------------------------------------------------- statistieken
@@ -439,6 +902,31 @@ def set_autostart(enabled):
                 log.info("Autostart uitgezet.")
     except Exception:
         log.exception("Autostart instellen mislukt")
+
+
+# ---------------------------------------------------------------- updates
+
+UPDATE_REPO = "Radeaus/dicteer"
+
+
+def check_for_update():
+    """Vraag de nieuwste release op bij GitHub. Geeft dict of None."""
+    import urllib.request
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest",
+        headers={"User-Agent": "Dicteer",
+                 "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        data = json.loads(r.read().decode())
+    tag = str(data.get("tag_name", ""))
+    try:
+        latest = int(tag.lstrip("vV").split(".")[0])
+        current = int(VERSION.lstrip("vV").split(".")[0])
+    except ValueError:
+        return None
+    if latest > current:
+        return {"tag": tag, "url": data.get("html_url", "")}
+    return None
 
 
 # ------------------------------------------------------------ app-identiteit
@@ -519,7 +1007,9 @@ def pycaw_available():
 
 
 def _iter_capture_sessions():
-    """(procesnaam, ISimpleAudioVolume) voor elke opnamesessie op alle actieve microfoons."""
+    """(pid, procesnaam, sessiestatus, ISimpleAudioVolume) voor elke
+    opnamesessie op alle actieve microfoons. Status: 0=inactief, 1=actief
+    (neemt nu op), 2=verlopen."""
     import comtypes
     from pycaw.pycaw import (IAudioSessionManager2, IAudioSessionControl2,
                              ISimpleAudioVolume, IMMDeviceEnumerator)
@@ -550,7 +1040,11 @@ def _iter_capture_sessions():
                     name = psutil.Process(pid).name()
                 except Exception:
                     name = f"pid={pid}"
-                yield name, ctl2.QueryInterface(ISimpleAudioVolume)
+                try:
+                    state = int(ctl2.GetState())
+                except Exception:
+                    state = -1
+                yield pid, name, state, ctl2.QueryInterface(ISimpleAudioVolume)
             except Exception:
                 continue
 
@@ -596,9 +1090,12 @@ def repair_microphone():
                 finally:
                     dev = itf = vol = None
             name = svol = None
-            for name, svol in _iter_capture_sessions():
+            for _pid, name, _state, svol in _iter_capture_sessions():
                 try:
-                    if "discord" in name.lower() and svol.GetMute():
+                    # herstel ALLE hangende sessiedempingen (bijv. na een crash
+                    # met 'andere apps dempen' aan): Windows onthoudt deze en
+                    # er bestaat geen zichtbare knop voor in de interface
+                    if svol.GetMute():
                         svol.SetMute(0, None)
                         fixed += 1
                         log.info("Audiosessie van %s stond op mute; hersteld.", name)
@@ -880,6 +1377,165 @@ class DiscordMuteWorker:
                 self._close()
 
 
+class AppMuteWorker:
+    """Dempt tijdens de opname VIRTUELE microfoon-apparaten (Voicemod,
+    Voicemeeter, VB-Cable, NVIDIA Broadcast...) waar andere apps naar
+    luisteren, en herstelt daarna precies wat wij gedempt hebben.
+
+    Waarom apparaten en geen audiosessies: Windows kent geen echte demping
+    per app voor opname - het 'sessievolume' van een opnamestroom stuurt in
+    de praktijk het hele apparaat aan, dus per-app dempen zet altijd ook je
+    eigen microfoon dicht. Apparaat-demping werkt wel betrouwbaar: laat
+    Dicteer de ECHTE microfoon gebruiken, dan wordt tijdens het dicteren de
+    virtuele mic gedempt waar Discord, games, OBS en Teams naar luisteren.
+    De microfoon van Dicteer zelf wordt altijd beschermd.
+
+    Al het COM-werk gebeurt binnen één taak op dezelfde thread en wordt daar
+    ook opgeruimd (zie repair_microphone voor het waarom)."""
+
+    # herkenning van virtuele microfoons op naamdeel
+    VIRTUEEL_DELEN = (
+        "voicemod", "voicemeeter", "vb-audio", "vb-cable", "cable",
+        "virtual", "virtueel", "sonar", "steelseries", "broadcast",
+        "nahimic", "goxlr", "wave link", "wavelink", "krisp",
+    )
+
+    def __init__(self, app):
+        self.app = app
+        self._desired = None
+        self._cv = threading.Condition()
+        self._muted_ids = set()  # endpoint-ids die WIJ gedempt hebben
+        threading.Thread(target=self._run, daemon=True, name="app-mute").start()
+
+    def request(self, mute):
+        with self._cv:
+            self._desired = bool(mute)
+            self._cv.notify()
+
+    def _run(self):
+        while True:
+            with self._cv:
+                while self._desired is None:
+                    self._cv.wait()
+                mute = self._desired
+                self._desired = None
+            try:
+                self._apply(mute)
+            except Exception:
+                log.exception("Demping andere apps mislukt")
+
+    def _apply(self, mute):
+        if not pycaw_available():
+            return
+        if not mute and not self._muted_ids:
+            return  # niets te herstellen
+        import gc
+        import comtypes
+        from ctypes import POINTER, cast
+        from pycaw.pycaw import IAudioEndpointVolume, IMMDeviceEnumerator
+        try:
+            from pycaw.constants import CLSID_MMDeviceEnumerator
+        except ImportError:
+            from pycaw.pycaw import CLSID_MMDeviceEnumerator
+        comtypes.CoInitialize()
+        try:
+            enumerator = collection = None
+            try:
+                enumerator = comtypes.CoCreateInstance(
+                    CLSID_MMDeviceEnumerator, IMMDeviceEnumerator,
+                    comtypes.CLSCTX_INPROC_SERVER)
+                namen = self._endpoint_names()
+                beschermd = self._protected_ids(enumerator, namen) if mute else set()
+                if mute and beschermd is None:
+                    log.warning("Virtuele mics NIET gedempt: de microfoon van "
+                                "Dicteer is niet met zekerheid herkend.")
+                    return
+                collection = enumerator.EnumAudioEndpoints(1, 1)  # eCapture, ACTIVE
+                n = 0
+                nieuw = set()
+                for i in range(collection.GetCount()):
+                    dev = itf = vol = None
+                    try:
+                        dev = collection.Item(i)
+                        did = str(dev.GetId())
+                        naam = namen.get(did, "")
+                        if mute:
+                            if did in beschermd:
+                                continue
+                            if not any(deel in naam.lower()
+                                       for deel in self.VIRTUEEL_DELEN):
+                                continue  # alleen virtuele mics dempen
+                        elif did not in self._muted_ids:
+                            continue
+                        itf = dev.Activate(IAudioEndpointVolume._iid_,
+                                           comtypes.CLSCTX_ALL, None)
+                        vol = cast(itf, POINTER(IAudioEndpointVolume))
+                        if mute:
+                            if not vol.GetMute():
+                                vol.SetMute(1, None)
+                                nieuw.add(did)
+                                n += 1
+                                log.info("Virtuele microfoon gedempt: %s", naam)
+                        else:
+                            if vol.GetMute():
+                                vol.SetMute(0, None)
+                                n += 1
+                                log.info("Microfoon hersteld: %s", naam)
+                    except Exception:
+                        pass
+                    finally:
+                        dev = itf = vol = None
+                if mute:
+                    self._muted_ids = nieuw
+                    if not n:
+                        log.info("Geen virtuele microfoon gevonden om te "
+                                 "dempen (of Dicteer gebruikt hem zelf - kies "
+                                 "dan je echte microfoon in de instellingen).")
+                else:
+                    self._muted_ids = set()
+            finally:
+                enumerator = collection = None
+                gc.collect()  # COM-objecten op deze thread opruimen
+        finally:
+            try:
+                comtypes.CoUninitialize()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _endpoint_names():
+        """{endpoint-id: weergavenaam} voor alle audio-apparaten."""
+        namen = {}
+        try:
+            from pycaw.pycaw import AudioUtilities
+            for d in AudioUtilities.GetAllDevices():
+                try:
+                    namen[str(d.id)] = str(getattr(d, "FriendlyName", "") or "")
+                except Exception:
+                    continue
+        except Exception:
+            log.exception("Apparaatnamen opvragen mislukt")
+        return namen
+
+    def _protected_ids(self, enumerator, namen):
+        """Endpoint-ids die nooit gedempt mogen worden (de mic van Dicteer).
+        None betekent: niet met zekerheid vast te stellen -> demp dan niets."""
+        doel = str(self.app.cfg.get("input_device", "auto")).strip()
+        ids = set()
+        if doel in ("", "auto"):
+            for rol in (0, 2):  # eConsole en eCommunications
+                try:
+                    ids.add(str(enumerator.GetDefaultAudioEndpoint(1, rol).GetId()))
+                except Exception:
+                    pass
+            return ids or None
+        frag = doel.lower()[:25]  # sounddevice kapt lange namen af
+        for did, naam in namen.items():
+            if frag and frag in naam.lower():
+                ids.add(did)
+        return ids or None
+
+
 # ---------------------------------------------------------------- CUDA DLL's
 
 def setup_cuda_dlls():
@@ -1092,38 +1748,509 @@ class Recorder:
 
 # ---------------------------------------------------------------- overlay
 
+class WebApi:
+    """Brug tussen het HTML-instellingenvenster (JavaScript) en de app.
+    Alle publieke methodes zijn vanuit JS aanroepbaar via window.pywebview.api."""
+
+    def __init__(self, app, ui):
+        self._app = app
+        self._ui = ui
+
+    def _window(self):
+        return self._ui._win
+
+    # -------- state naar de UI
+
+    def state(self):
+        app = self._app
+        cfg = app.cfg
+        lang = cfg.get("ui_language", "en")
+        mics = list_input_devices()
+        cur_mic = cfg.get("input_device", "auto")
+        if cur_mic not in mics:
+            mics.append(cur_mic)
+        safe_cfg = {k: v for k, v in cfg.items()
+                    if k not in ("vocabulary", "replacements")}
+        return {
+            "version": VERSION,
+            "cfg": safe_cfg,
+            "vocab": list(app.vocab),
+            "repl": dict(app.repl),
+            "stats": load_stats(),
+            "mics": mics,
+            "languages": [[c, n] for c, n in LANGUAGES],
+            "ui_languages": [[c, n] for c, n in UI_LANGUAGES],
+            "models": ["large-v3-turbo", "large-v3", "medium", "small"],
+            "devices": ["auto", "cuda", "cpu"],
+            "mouse_buttons": ["none", "x", "x2"],
+            "autostart": autostart_enabled(),
+            "update": app.update_info,
+            "lang": lang,
+            "projects": self._projects_state()["projects"],
+            "history": list(app.history),
+            "tr": {**TR["en"], **TR.get(lang, {})},
+        }
+
+    # -------- opslaan
+
+    def save(self, data):
+        app = self._app
+        cfg = app.cfg
+        data = data or {}
+        cfg["hotkey"] = str(data.get("hotkey") or "ctrl+shift+s").strip()
+        cfg["mode"] = data.get("mode") if data.get("mode") in ("toggle", "hold") else "toggle"
+        cfg["language"] = str(data.get("language") or "auto")
+        cfg["model"] = str(data.get("model") or cfg.get("model", "large-v3-turbo"))
+        cfg["device"] = str(data.get("device") or "auto")
+        cfg["ui_language"] = str(data.get("ui_language") or "en")
+        try:
+            cfg["beep_volume"] = round(float(data.get("beep_volume", 0.15)), 2)
+        except (TypeError, ValueError):
+            pass
+        cfg["input_device"] = str(data.get("input_device") or "auto")
+        cfg["mouse_button"] = str(data.get("mouse_button") or "none")
+        cfg["repaste_hotkey"] = str(data.get("repaste_hotkey") or "").strip()
+        for key in ("beep", "overlay", "live_preview", "pause_media", "history",
+                    "restore_clipboard", "show_settings_on_start", "check_updates",
+                    "auto_enter", "discord_mute", "discord_deafen",
+                    "projects_enabled", "mute_other_apps"):
+            if key in data:
+                cfg[key] = bool(data[key])
+        cfg["discord_client_id"] = str(data.get("discord_client_id") or "").strip()
+        cfg["discord_client_secret"] = str(data.get("discord_client_secret") or "").strip()
+        app.vocab = [str(r).strip() for r in (data.get("vocab") or [])
+                     if str(r).strip()]
+        save_vocabulary(app.vocab)
+        save_config(cfg)
+        global UI_LANG
+        UI_LANG = cfg["ui_language"]
+        try:
+            set_autostart(bool(data.get("_autostart")))
+        except Exception:
+            log.exception("Autostart wijzigen mislukt")
+        threading.Thread(target=app.reload_config, daemon=True).start()
+        return self.state()
+
+    # -------- woordenboek
+
+    def repl_add(self, wrong, right):
+        wrong = str(wrong or "").strip()
+        right = str(right or "").strip()
+        if wrong:
+            self._app.repl[wrong] = right
+            save_replacements(self._app.repl)
+        return dict(self._app.repl)
+
+    def repl_remove(self, wrong):
+        self._app.repl.pop(str(wrong), None)
+        save_replacements(self._app.repl)
+        return dict(self._app.repl)
+
+    def stats(self):
+        return load_stats()
+
+    # -------- projecten
+
+    def _projects_state(self):
+        data = load_projects_data()
+        return {"projects": [{"name": n, "count": project_count(n),
+                              "header": data["headers"].get(n, "")}
+                             for n in data["projects"]],
+                "current": self._app.cfg.get("current_project", "")}
+
+    def project_add(self, name):
+        name = str(name or "").strip()[:60]
+        if name:
+            data = load_projects_data()
+            if name not in data["projects"]:
+                data["projects"].append(name)
+                save_projects_data(data)
+            if not self._app.cfg.get("current_project"):
+                self._app.cfg["current_project"] = name
+                save_config(self._app.cfg)
+        return self._projects_state()
+
+    def project_remove(self, name):
+        data = load_projects_data()
+        data["projects"] = [n for n in data["projects"] if n != name]
+        data["headers"].pop(str(name), None)
+        save_projects_data(data)
+        if self._app.cfg.get("current_project") == name:
+            self._app.cfg["current_project"] = ""
+            save_config(self._app.cfg)
+        return self._projects_state()
+
+    def project_set_header(self, name, text):
+        """AI-instructie die bovenaan de export/kopie van dit project komt."""
+        data = load_projects_data()
+        if name in data["projects"]:
+            data["headers"][str(name)] = str(text or "").strip()
+            save_projects_data(data)
+        return True
+
+    def project_entries(self, name):
+        try:
+            with open(project_file(name), encoding="utf-8") as f:
+                return [r.rstrip("\n") for r in f if r.strip()]
+        except Exception:
+            return []
+
+    def project_entry_remove(self, name, index):
+        regels = self.project_entries(name)
+        try:
+            i = int(index)
+            if 0 <= i < len(regels):
+                regels.pop(i)
+                with open(project_file(name), "w", encoding="utf-8") as f:
+                    f.write("\n".join(regels) + ("\n" if regels else ""))
+        except Exception:
+            log.exception("Projectregel verwijderen mislukt")
+        return self.project_entries(name)
+
+    def _project_content(self, name):
+        with open(project_file(name), encoding="utf-8") as f:
+            inhoud = f.read()
+        kop = load_projects_data()["headers"].get(str(name), "").strip()
+        top = f"# Dicteer - {name}\n\n"
+        if kop:
+            top += kop + "\n\n---\n\n"
+        return top + inhoud
+
+    def project_select(self, name):
+        if name in load_projects():
+            self._app.cfg["current_project"] = name
+            save_config(self._app.cfg)
+        return self._projects_state()
+
+    def project_export(self, name):
+        pf = project_file(name)
+        if not os.path.exists(pf):
+            self._app._notify(tr("n_empty"))
+            return False
+        pad = self._dialog(
+            True, f"dicteer-{safe_filename(name)}-{time.strftime('%Y%m%d')}.md",
+            ("Markdown (*.md)", "Text (*.txt)"))
+        if not pad:
+            return False
+        try:
+            with open(pad, "w", encoding="utf-8") as f:
+                f.write(self._project_content(name))
+            self._app._notify(tr("n_export_ok"))
+            return True
+        except Exception:
+            log.exception("Project-export mislukt")
+            return False
+
+    def project_copy(self, name):
+        import pyperclip
+        try:
+            pyperclip.copy(self._project_content(name))
+            self._app._notify(tr("n_copied"))
+            return True
+        except Exception:
+            self._app._notify(tr("n_empty"))
+            return False
+
+    def history(self):
+        return list(self._app.history)
+
+    def copy_text(self, text):
+        import pyperclip
+        try:
+            pyperclip.copy(str(text or ""))
+            return True
+        except Exception:
+            return False
+
+    # -------- microfoontest (live meter in de instellingen)
+
+    def mic_test_start(self, device=None):
+        if self._app.state == "opname":
+            return False
+        self.mic_test_stop()
+        try:
+            import sounddevice as sd
+            naam = str(device or self._app.cfg.get("input_device", "auto"))
+            dev = None
+            if naam and naam != "auto":
+                try:
+                    for i, d in enumerate(sd.query_devices()):
+                        if d.get("max_input_channels", 0) > 0 and d["name"] == naam:
+                            dev = i
+                            break
+                except Exception:
+                    dev = None
+            self._mic_level = 0.0
+
+            def _cb(indata, frames, t, status):
+                try:
+                    self._mic_level = float((indata ** 2).mean()) ** 0.5
+                except Exception:
+                    pass
+
+            self._mic_stream = sd.InputStream(
+                samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                device=dev, callback=_cb)
+            self._mic_stream.start()
+            timer = threading.Timer(30.0, self.mic_test_stop)  # vangnet
+            timer.daemon = True
+            timer.start()
+            return True
+        except Exception:
+            log.exception("Microfoontest starten mislukt")
+            self._mic_stream = None
+            return False
+
+    def mic_test_stop(self):
+        s = getattr(self, "_mic_stream", None)
+        self._mic_stream = None
+        if s is not None:
+            try:
+                s.stop()
+                s.close()
+            except Exception:
+                pass
+        return True
+
+    def mic_level(self):
+        if getattr(self, "_mic_stream", None) is None:
+            return -1.0
+        return min(1.0, float(getattr(self, "_mic_level", 0.0)) * 18)
+
+    # -------- sneltoetsen pauzeren tijdens vastleggen
+
+    def hotkeys_suspend(self):
+        self._app.suspend_hotkeys()
+        return True
+
+    def hotkeys_resume(self):
+        self._app.resume_hotkeys()
+        return True
+
+    def open_config(self):
+        try:
+            os.startfile(CONFIG_PATH)
+        except Exception:
+            pass
+        return True
+
+    def open_log(self):
+        try:
+            os.startfile(LOG_PATH)
+        except Exception:
+            pass
+        return True
+
+    # -------- acties
+
+    def discord_link(self):
+        self._app._discord_link()
+        return True
+
+    def make_shortcut(self):
+        self._app.make_shortcut()
+        return True
+
+    def copy_dictations(self):
+        self._app.copy_dictations()
+        return True
+
+    def _dialog(self, save, filename="", file_types=()):
+        import webview
+        win = self._window()
+        if win is None:
+            return None
+        fd = getattr(webview, "FileDialog", None)
+        if fd is not None:
+            mode = fd.SAVE if save else fd.OPEN
+        else:  # oudere pywebview-versies
+            mode = webview.SAVE_DIALOG if save else webview.OPEN_DIALOG
+        try:
+            res = win.create_file_dialog(mode, save_filename=filename,
+                                         file_types=tuple(file_types))
+        except Exception:
+            log.exception("Bestandsdialoog mislukt")
+            return None
+        if not res:
+            return None
+        if isinstance(res, (list, tuple)):
+            return res[0] if res else None
+        return res
+
+    def backup(self):
+        pad = self._dialog(True, f"dicteer-backup-{time.strftime('%Y%m%d')}.zip",
+                           ("Zip (*.zip)",))
+        if pad:
+            self._app.backup_settings(pad)
+        return bool(pad)
+
+    def restore(self):
+        pad = self._dialog(False, file_types=("Zip (*.zip)",))
+        if pad:
+            self._app.restore_settings(pad)
+        return bool(pad)
+
+    def export(self):
+        pad = self._dialog(True, f"dicteer-dictations-{time.strftime('%Y%m%d')}.md",
+                           ("Markdown (*.md)", "Text (*.txt)"))
+        if pad:
+            self._app.export_dictations(pad)
+        return bool(pad)
+
+    def open_url(self, url):
+        import webbrowser
+        if str(url).startswith(("http://", "https://")):
+            webbrowser.open(str(url))
+        return True
+
+    def close(self):
+        win = self._window()
+        if win is not None:
+            try:
+                win.hide()
+            except Exception:
+                pass
+        return True
+
+
 class Overlay:
-    """UI op de HOOFDthread: onzichtbare root + opname-overlay + instellingen.
-    tkinter/CustomTkinter zijn niet thread-safe; daarom draait het tray-icoon
-    juist in een eigen thread (run_detached) en de UI hier."""
+    """UI-huishouding.
+    - Instellingen: web-based venster (pywebview) op de HOOFDthread. Het venster
+      wordt bij sluiten alleen verborgen, zodat de GUI-lus blijft draaien.
+    - Opname-overlay: lichtgewicht tkinter-venster in een EIGEN thread; alle
+      tk-aanroepen blijven binnen die thread (tkinter is niet thread-safe)."""
+
+    OV_W, OV_H = 460, 92
+    C_BG, C_BORDER = "#121412", "#2d322d"
+    C_TEXT, C_MUTED = "#e9ebe7", "#9ba49c"
+    C_GREEN, C_RED, C_AMBER = "#58b47e", "#e0605a", "#d9a03c"
+    TRANS = "#010203"  # 'magische' kleur -> transparante hoeken op Windows
 
     def __init__(self, app):
         self.app = app
+        self._quit = False
+        self._win = None          # pywebview-venster (instellingen)
+        self._ui_ready = False
+        self._webview_failed = False
         self._visible = False
-        self._root = None
-        self._ov = None
         self._phase = 0.0
         self._smooth = 0.0
-        self._pending_settings = False
-        self._settings_win = None
-        self._quit = False
+        self._root = None
+        self._ov = None
+        self._canvas = None
+
+    # -------- instellingen openen (mag vanaf elke thread)
 
     def open_settings(self):
-        """Vraag (vanaf elke thread) om het instellingenvenster te openen."""
-        self._pending_settings = True
+        if self._webview_failed:
+            self.app._notify("Missing package. Run: venv\\Scripts\\python.exe "
+                             "-m pip install pywebview")
+            return
+        win = self._win
+        if win is None:
+            return  # venster verschijnt vanzelf zodra de GUI-lus start
+        def _t():
+            try:
+                if self._ui_ready:
+                    try:
+                        win.evaluate_js("window.__refresh && window.__refresh()")
+                    except Exception:
+                        pass
+                win.show()
+                try:
+                    win.restore()
+                except Exception:
+                    pass
+            except Exception:
+                log.exception("Instellingen tonen mislukt")
+        threading.Thread(target=_t, daemon=True).start()
 
     def request_quit(self):
         self._quit = True
+        win, self._win = self._win, None
+        if win is not None:
+            try:
+                win.destroy()
+            except Exception:
+                pass
+
+    # -------- hoofdlus
 
     def run_mainloop(self):
+        try:
+            import webview
+        except Exception:
+            webview = None
+        if webview is None:
+            self._webview_failed = True
+            log.error("pywebview ontbreekt; instellingenvenster niet beschikbaar. "
+                      "Installeer met: venv\\Scripts\\python.exe -m pip install pywebview")
+            self.app._notify("Missing package. Run: venv\\Scripts\\python.exe "
+                             "-m pip install pywebview")
+            self._tk_overlay_loop()  # overlay blijft werken (blokkeert)
+            return
+        threading.Thread(target=self._tk_overlay_loop, daemon=True,
+                         name="overlay-ui").start()
+        self._run_webview(webview)
+
+    def _run_webview(self, webview):
+        api = WebApi(self.app, self)
+        show = bool(self.app.cfg.get("show_settings_on_start", True))
+        html_path = os.path.join(APP_DIR, "ui", "settings.html")
+        try:
+            win = webview.create_window(
+                "Dicteer", url=html_path, js_api=api,
+                width=940, height=680, min_size=(820, 560),
+                hidden=not show, background_color="#0E0F0E")
+            self._win = win
+            win.events.loaded += self._on_loaded
+            win.events.before_show += self._on_before_show
+            win.events.closing += self._on_closing
+            webview.start(http_server=True)
+        except Exception:
+            log.exception("Webview-hoofdlus gestopt")
+        finally:
+            self._win = None
+
+    def _on_loaded(self, *args):
+        self._ui_ready = True
+
+    def _on_before_show(self, *args):
+        """Donkere titelbalk (Windows 10 20H1+) en eigen venstericoon."""
+        try:
+            import ctypes
+            hwnd = self._win.native.Handle.ToInt32()
+            value = ctypes.c_int(1)
+            for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE
+                if ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        hwnd, attr, ctypes.byref(value),
+                        ctypes.sizeof(value)) == 0:
+                    break
+        except Exception:
+            pass
+        try:
+            import System.Drawing  # via pythonnet (geladen door pywebview)
+            ico = os.path.join(APP_DIR, "dicteer.ico")
+            if os.path.exists(ico):
+                self._win.native.Icon = System.Drawing.Icon(ico)
+        except Exception:
+            pass
+
+    def _on_closing(self, *args):
+        """Kruisje = verbergen, niet sluiten: de GUI-lus moet blijven draaien."""
+        if self._quit:
+            return None
+        win = self._win
+        if win is not None:
+            threading.Thread(target=lambda: win.hide(), daemon=True).start()
+        return False
+
+    # -------- opname-overlay (tkinter; alles binnen deze thread)
+
+    def _tk_overlay_loop(self):
         import tkinter as tk
         try:
-            try:
-                import customtkinter as ctk
-                ctk.set_appearance_mode("dark")
-                root = ctk.CTk()
-            except Exception:
-                root = tk.Tk()
+            root = tk.Tk()
             self._root = root
             root.withdraw()
             ov = tk.Toplevel(root)
@@ -1132,19 +2259,31 @@ class Overlay:
             ov.overrideredirect(True)            # geen titelbalk
             ov.attributes("-topmost", True)      # altijd bovenop
             try:
-                ov.attributes("-alpha", 0.93)    # licht doorschijnend
+                ov.attributes("-transparentcolor", self.TRANS)
             except Exception:
                 pass
-            self._w, self._h = 460, 96
+            w, h = self.OV_W, self.OV_H
             sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-            ov.geometry(f"{self._w}x{self._h}+{(sw - self._w) // 2}+{sh - self._h - 90}")
-            self._canvas = tk.Canvas(ov, width=self._w, height=self._h,
-                                     bg="#1e1e28", highlightthickness=0)
+            ov.geometry(f"{w}x{h}+{(sw - w) // 2}+{sh - h - 90}")
+            self._canvas = tk.Canvas(ov, width=w, height=h, bg=self.TRANS,
+                                     highlightthickness=0)
             self._canvas.pack()
+            self._no_activate(ov)  # klik mag geen focus stelen (anders faalt plakken)
+            self._canvas.tag_bind("entertoggle", "<Button-1>", self._toggle_enter)
+            self._canvas.tag_bind("entertoggle", "<Enter>",
+                                  lambda e: ov.configure(cursor="hand2"))
+            self._canvas.tag_bind("entertoggle", "<Leave>",
+                                  lambda e: ov.configure(cursor=""))
+            self._canvas.tag_bind("projtoggle", "<Button-1>",
+                                  lambda e: self.app.next_project())
+            self._canvas.tag_bind("projtoggle", "<Enter>",
+                                  lambda e: ov.configure(cursor="hand2"))
+            self._canvas.tag_bind("projtoggle", "<Leave>",
+                                  lambda e: ov.configure(cursor=""))
             self._tick()
             root.mainloop()
         except Exception:
-            log.exception("UI-thread gestopt")
+            log.exception("Overlay-thread gestopt")
 
     def _show(self):
         if not self._visible:
@@ -1157,56 +2296,130 @@ class Overlay:
             self._ov.withdraw()
             self._visible = False
 
+    @staticmethod
+    def _round_rect(c, x1, y1, x2, y2, r, **kw):
+        pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+               x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+        return c.create_polygon(pts, smooth=True, **kw)
+
+    def _pill(self, c, height):
+        self._round_rect(c, 1, 1, self.OV_W - 1, height - 1, 20,
+                         fill=self.C_BG, outline=self.C_BORDER)
+
+    @staticmethod
+    def _no_activate(win):
+        """WS_EX_NOACTIVATE: overlay reageert op klikken zonder de focus af te
+        pakken van het venster waarin gedicteerd wordt."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            win.update_idletasks()
+            GWL_EXSTYLE, WS_EX_NOACTIVATE = -20, 0x08000000
+            u = ctypes.windll.user32
+            for hwnd in {win.winfo_id(), u.GetParent(win.winfo_id())}:
+                if hwnd:
+                    stijl = u.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                    u.SetWindowLongW(hwnd, GWL_EXSTYLE,
+                                     stijl | WS_EX_NOACTIVATE)
+        except Exception:
+            log.exception("WS_EX_NOACTIVATE instellen mislukt")
+
+    def _toggle_enter(self, event=None):
+        """Klik op de Enter-chip: auto-verzenden alleen voor dit dictaat aan/uit."""
+        self.app.enter_once_off = not self.app.enter_once_off
+
+    def _draw_enter_chip(self, c):
+        aan = not self.app.enter_once_off
+        kleur = self.C_GREEN if aan else self.C_MUTED
+        label = tr("ov_enter_on") if aan else tr("ov_enter_off")
+        self._round_rect(c, 288, 16, 446, 40, 12, fill=self.C_BG,
+                         outline=kleur, tags="entertoggle")
+        c.create_text(367, 28, text=label, fill=kleur,
+                      font=("Segoe UI", 9, "bold"), tags="entertoggle")
+
+    def _project_naam(self):
+        """Naam van het actieve project voor in de overlay, of None."""
+        if not self.app.cfg.get("projects_enabled", False):
+            return None
+        naam = str(self.app.cfg.get("current_project", "")).strip()
+        if not naam:
+            return None
+        return (naam[:17] + "…") if len(naam) > 18 else naam
+
     def _tick(self):
         if self._quit:
             try:
                 self._root.quit()
+                self._root.destroy()
             except Exception:
                 pass
             return
         try:
-            if self._pending_settings:
-                self._pending_settings = False
-                self._open_settings_window()
-        except Exception:
-            log.exception("Instellingenvenster openen mislukt")
-        try:
             state = self.app.state
             c = self._canvas
-            cy = self._h / 2
+            cy = 28
             if state == "opname" and self.app.cfg.get("overlay", True):
-                cy = 32
                 self._show()
                 c.delete("all")
                 self._phase += 0.35
                 lvl = getattr(self.app.recorder, "level", 0.0)
                 self._smooth = 0.7 * self._smooth + 0.3 * lvl
-                # rode stip die zachtjes pulseert
-                r = 7 + 2 * math.sin(self._phase * 0.6)
-                c.create_oval(24 - r, cy - r, 24 + r, cy + r, fill="#e5484d", outline="")
-                c.create_text(44, cy, anchor="w", text=tr("recording"), fill="#ffffff",
-                              font=("Segoe UI", 12, "bold"))
-                # geluidsbalkjes die meebewegen met je stem
-                amp = min(1.0, self._smooth * 18)
-                n, x0 = 30, 165
-                for i in range(n):
-                    hgt = 3 + 30 * amp * (0.35 + 0.65 * abs(math.sin(self._phase + i * 0.9)))
-                    x = x0 + i * 9
-                    c.create_rectangle(x, cy - hgt / 2, x + 5, cy + hgt / 2,
-                                       fill="#4cc38a", outline="")
                 pv = getattr(self.app, "preview_text", "")
+                self._pill(c, 84 if pv else 56)
+                # zacht pulserende opname-stip
+                pnaam = self._project_naam()
+                ly = 20 if pnaam else cy
+                r = 5.5 + 1.5 * math.sin(self._phase * 0.6)
+                c.create_oval(26 - r, ly - r, 26 + r, ly + r,
+                              fill=self.C_RED, outline="")
+                c.create_text(42, ly, anchor="w", text=tr("recording"),
+                              fill=self.C_TEXT, font=("Segoe UI", 11, "bold"))
+                if pnaam:
+                    c.create_rectangle(40, 29, 170, 45, fill=self.C_BG,
+                                       outline="", tags="projtoggle")
+                    c.create_text(42, 37, anchor="w", text=pnaam + "  ›",
+                                  fill=self.C_MUTED, font=("Segoe UI", 8),
+                                  tags="projtoggle")
+                # spraak-capsules, gespiegeld rond de middellijn
+                chip = bool(self.app.cfg.get("auto_enter", False))
+                amp = min(1.0, self._smooth * 18)
+                n, x0, stap = (11 if chip else 26), 172, 10
+                for i in range(n):
+                    f = 0.3 + 0.7 * abs(math.sin(self._phase + i * 0.85))
+                    hh = 2.0 + 13.0 * amp * f
+                    x = x0 + i * stap
+                    c.create_line(x, cy - hh, x, cy + hh, fill=self.C_GREEN,
+                                  width=4, capstyle="round")
+                if chip:
+                    self._draw_enter_chip(c)
                 if pv:
-                    if len(pv) > 62:
-                        pv = "\u2026" + pv[-62:]
-                    c.create_text(self._w / 2, 74, text=pv, fill="#c9c9d1",
-                                  font=("Segoe UI", 10), width=self._w - 24)
+                    if len(pv) > 64:
+                        pv = "…" + pv[-64:]
+                    c.create_text(self.OV_W / 2, 68, text=pv, fill=self.C_MUTED,
+                                  font=("Segoe UI", 9), width=self.OV_W - 48)
             elif state == "verwerken" and self.app.cfg.get("overlay", True):
                 self._show()
                 c.delete("all")
                 self._phase += 0.25
+                self._pill(c, 56)
+                pnaam = self._project_naam()
+                ly = 20 if pnaam else cy
+                r = 5.5 + 1.5 * math.sin(self._phase * 1.2)
+                c.create_oval(26 - r, ly - r, 26 + r, ly + r,
+                              fill=self.C_AMBER, outline="")
                 dots = "." * (1 + int(self._phase) % 3)
-                c.create_text(self._w / 2, cy, text=f"{tr('transcribing')}{dots}",
-                              fill="#f5a623", font=("Segoe UI", 12, "bold"))
+                c.create_text(42, ly, anchor="w",
+                              text=f"{tr('transcribing')}{dots}",
+                              fill=self.C_TEXT, font=("Segoe UI", 11, "bold"))
+                if pnaam:
+                    c.create_rectangle(40, 29, 170, 45, fill=self.C_BG,
+                                       outline="", tags="projtoggle")
+                    c.create_text(42, 37, anchor="w", text=pnaam + "  ›",
+                                  fill=self.C_MUTED, font=("Segoe UI", 8),
+                                  tags="projtoggle")
+                if self.app.cfg.get("auto_enter", False):
+                    self._draw_enter_chip(c)  # kan tijdens transcriberen nog uit
             else:
                 self._hide()
         except Exception:
@@ -1214,274 +2427,9 @@ class Overlay:
         self._root.after(50, self._tick)
 
 
-    def _open_settings_window(self):
-        import tkinter as tk
-        try:
-            import customtkinter as ctk
-        except Exception:
-            log.exception("customtkinter ontbreekt")
-            self.app._notify("Missing package. Run: venv\\Scripts\\python.exe "
-                             "-m pip install customtkinter")
-            return
-        if self._settings_win is not None:
-            try:
-                self._settings_win.deiconify()
-                self._settings_win.lift()
-                return
-            except Exception:
-                self._settings_win = None
-        cfg = self.app.cfg
-        ACCENT, ACCENT_H = "#2ea043", "#3fb950"
-        BG, SIDE, CARD, DIM = "#101012", "#17171a", "#1d1d22", "#8b8b93"
-        LBL = ctk.CTkFont("Segoe UI", 13)
-        SUB = ctk.CTkFont("Segoe UI", 11)
-
-        win = ctk.CTkToplevel(self._root)
-        self._settings_win = win
-        win.title("Dicteer")
-        win.geometry("900x640")
-        win.minsize(860, 600)
-        win.configure(fg_color=BG)
-        try:
-            win.iconbitmap(os.path.join(APP_DIR, "dicteer.ico"))
-        except Exception:
-            pass
-        win.grid_columnconfigure(1, weight=1)
-        win.grid_rowconfigure(0, weight=1)
-        v = {}
-
-        # -------- zijbalk --------
-        side = ctk.CTkFrame(win, width=190, corner_radius=0, fg_color=SIDE)
-        side.grid(row=0, column=0, rowspan=2, sticky="nsw")
-        side.grid_propagate(False)
-        ctk.CTkLabel(side, text="Dicteer",
-                     font=ctk.CTkFont("Segoe UI", 22, "bold")).pack(
-            anchor="w", padx=20, pady=(26, 0))
-        ctk.CTkLabel(side, text=VERSION, font=SUB, text_color=DIM).pack(
-            anchor="w", padx=20, pady=(0, 22))
-
-        pages, nav_buttons = {}, {}
-        content = ctk.CTkFrame(win, fg_color="transparent")
-        content.grid(row=0, column=1, sticky="nsew", padx=28, pady=(28, 0))
-        content.grid_rowconfigure(0, weight=1)
-        content.grid_columnconfigure(0, weight=1)
-
-        def show(name):
-            for p in pages.values():
-                p.grid_remove()
-            pages[name].grid(row=0, column=0, sticky="nsew")
-            for n, b in nav_buttons.items():
-                b.configure(fg_color=(CARD if n == name else "transparent"))
-
-        def nav(name, label):
-            b = ctk.CTkButton(side, text=label, anchor="w", corner_radius=8,
-                              fg_color="transparent", hover_color=CARD, height=38,
-                              font=LBL, command=lambda: show(name))
-            b.pack(fill="x", padx=12, pady=3)
-            nav_buttons[name] = b
-            p = ctk.CTkScrollableFrame(content, fg_color="transparent")
-            pages[name] = p
-            return p
-
-        # -------- kaart + rijen (alles strikt via grid) --------
-        def card(page, titel):
-            c = ctk.CTkFrame(page, corner_radius=14, fg_color=CARD)
-            c.pack(fill="x", pady=(0, 16))
-            c.grid_columnconfigure(0, weight=1)
-            ctk.CTkLabel(c, text=titel,
-                         font=ctk.CTkFont("Segoe UI", 15, "bold")).grid(
-                row=0, column=0, columnspan=2, sticky="w", padx=20, pady=(16, 4))
-            c._row = 1
-            return c
-
-        def row(c, label, maak):
-            """Label links (kolom 0, rekt mee), widget rechts (kolom 1)."""
-            r = c._row
-            c._row += 1
-            ctk.CTkLabel(c, text=label, wraplength=400, justify="left",
-                         font=LBL).grid(row=r, column=0, sticky="w",
-                                        padx=20, pady=9)
-            w = maak(c)
-            w.grid(row=r, column=1, sticky="e", padx=20, pady=9)
-            return w
-
-        def hint(c, tekst):
-            ctk.CTkLabel(c, text=tekst, font=SUB, text_color=DIM,
-                         wraplength=560, justify="left").grid(
-                row=c._row, column=0, columnspan=2, sticky="w",
-                padx=20, pady=(0, 6))
-            c._row += 1
-
-        def einde(c):
-            ctk.CTkLabel(c, text="", height=1).grid(row=c._row, column=0,
-                                                    pady=(0, 8))
-            c._row += 1
-
-        def schakel(c, label, key, default=False):
-            var = tk.BooleanVar(value=bool(cfg.get(key, default)))
-            v[key] = var
-            row(c, label, lambda m: ctk.CTkSwitch(
-                m, text="", variable=var, width=46, progress_color=ACCENT))
-
-        def keuze(c, label, key, waarden, huidig):
-            var = tk.StringVar(value=huidig)
-            v[key] = var
-            row(c, label, lambda m: ctk.CTkOptionMenu(
-                m, variable=var, values=waarden, width=240, fg_color=BG,
-                button_color=ACCENT, button_hover_color=ACCENT_H))
-
-        def invoer(c, label, key, huidig, geheim=False):
-            var = tk.StringVar(value=huidig)
-            v[key] = var
-            row(c, label, lambda m: ctk.CTkEntry(
-                m, textvariable=var, width=280, show=("*" if geheim else "")))
-
-        # -------- General --------
-        p = nav("general", tr("tab_general"))
-        c = card(p, tr("tab_general"))
-        invoer(c, tr("hotkey"), "hotkey", cfg.get("hotkey", "ctrl+shift+s"))
-        keuze(c, tr("mode"), "mode", ["toggle", "hold"], cfg.get("mode", "toggle"))
-        hint(c, f"{tr('mode_toggle')}   |   {tr('mode_hold')}")
-        einde(c)
-
-        c = card(p, tr("spoken_lang"))
-        codes = [cc for cc, _ in LANGUAGES]
-        names = [n or tr("lang_auto") for _, n in LANGUAGES]
-        cur = cfg.get("language", "auto")
-        keuze(c, tr("spoken_lang"), "_langname", names,
-              names[codes.index(cur)] if cur in codes else names[0])
-        keuze(c, tr("model"), "model",
-              ["large-v3-turbo", "large-v3", "medium", "small"],
-              cfg.get("model", "large-v3-turbo"))
-        keuze(c, tr("device"), "device", ["auto", "cuda", "cpu"],
-              cfg.get("device", "auto"))
-        einde(c)
-
-        c = card(p, tr("ui_lang"))
-        ui_codes = [cc for cc, _ in UI_LANGUAGES]
-        ui_names = [n for _, n in UI_LANGUAGES]
-        cur_ui = cfg.get("ui_language", "en")
-        keuze(c, tr("ui_lang"), "_uiname", ui_names,
-              ui_names[ui_codes.index(cur_ui)] if cur_ui in ui_codes else "English")
-        hint(c, tr("ui_lang_note"))
-        einde(c)
-
-        # -------- Recording --------
-        p = nav("recording", tr("tab_recording"))
-        c = card(p, tr("tab_recording"))
-        schakel(c, tr("pause_media"), "pause_media", False)
-        schakel(c, tr("dc_mute"), "discord_mute", False)
-        schakel(c, tr("dc_deafen"), "discord_deafen", False)
-        einde(c)
-
-        c = card(p, tr("tab_audio"))
-        mics = list_input_devices()
-        cur_mic = cfg.get("input_device", "auto")
-        if cur_mic not in mics:
-            mics.append(cur_mic)
-        keuze(c, tr("mic"), "input_device", mics, cur_mic)
-        schakel(c, tr("live_preview"), "live_preview", True)
-        schakel(c, tr("beep"), "beep", True)
-        vol = tk.DoubleVar(value=float(cfg.get("beep_volume", 0.15)))
-        v["beep_volume"] = vol
-        row(c, tr("beep_vol"), lambda m: ctk.CTkSlider(
-            m, from_=0.0, to=1.0, width=240, variable=vol,
-            progress_color=ACCENT))
-        schakel(c, tr("overlay"), "overlay", True)
-        einde(c)
-
-        # -------- Discord --------
-        p = nav("discord", "Discord")
-        c = card(p, "Discord")
-        invoer(c, tr("dc_id"), "discord_client_id",
-               cfg.get("discord_client_id", ""))
-        invoer(c, tr("dc_secret"), "discord_client_secret",
-               cfg.get("discord_client_secret", ""), geheim=True)
-        row(c, tr("dc_note"), lambda m: ctk.CTkButton(
-            m, text=tr("dc_link"), fg_color=ACCENT, hover_color=ACCENT_H,
-            command=lambda: self.app._discord_link()))
-        einde(c)
-
-        # -------- Statistieken --------
-        p = nav("stats", tr("tab_stats"))
-        st = load_stats()
-        c = card(p, tr("tab_stats"))
-
-        def stat(label, waarde):
-            row(c, label, lambda m, w=waarde: ctk.CTkLabel(
-                m, text=w, font=ctk.CTkFont("Segoe UI", 15, "bold")))
-
-        mins = st.get("seconds", 0.0) / 60
-        bespaard = max(0.0, st.get("words", 0) / 40 - mins)
-        stat(tr("st_dictations"), f"{st.get('dictations', 0)}")
-        stat(tr("st_words"), f"{st.get('words', 0)}")
-        stat(tr("st_audio"), f"{int(mins)} min")
-        stat(tr("st_saved"), f"\u2248 {int(bespaard)} min")
-        einde(c)
-
-        # -------- System --------
-        p = nav("system", tr("tab_system"))
-        c = card(p, tr("tab_system"))
-        auto = tk.BooleanVar(value=autostart_enabled())
-        v["_autostart"] = auto
-        row(c, tr("autostart"), lambda m: ctk.CTkSwitch(
-            m, text="", variable=auto, width=46, progress_color=ACCENT))
-        schakel(c, tr("history"), "history", True)
-        schakel(c, tr("restore_clip"), "restore_clipboard", True)
-        schakel(c, tr("show_start"), "show_settings_on_start", True)
-        row(c, "", lambda m: ctk.CTkButton(
-            m, text=tr("shortcut"), fg_color=ACCENT, hover_color=ACCENT_H,
-            command=lambda: self.app.make_shortcut()))
-        einde(c)
-
-        # -------- knoppenbalk --------
-        def sluiten():
-            self._settings_win = None
-            win.destroy()
-
-        def toepassen():
-            cfg["hotkey"] = v["hotkey"].get().strip() or "ctrl+shift+s"
-            cfg["mode"] = v["mode"].get()
-            cfg["language"] = codes[names.index(v["_langname"].get())]
-            cfg["model"] = v["model"].get()
-            cfg["device"] = v["device"].get()
-            cfg["ui_language"] = ui_codes[ui_names.index(v["_uiname"].get())]
-            cfg["beep_volume"] = round(float(v["beep_volume"].get()), 2)
-            cfg["input_device"] = v["input_device"].get()
-            for key in ("beep", "overlay", "live_preview", "pause_media", "history",
-                        "restore_clipboard", "show_settings_on_start",
-                        "discord_mute", "discord_deafen"):
-                cfg[key] = bool(v[key].get())
-            cfg["discord_client_id"] = v["discord_client_id"].get().strip()
-            cfg["discord_client_secret"] = v["discord_client_secret"].get().strip()
-            save_config(cfg)
-            try:
-                set_autostart(bool(v["_autostart"].get()))
-            except Exception:
-                log.exception("Autostart wijzigen mislukt")
-            threading.Thread(target=self.app.reload_config, daemon=True).start()
-            self.app._notify(tr("saved"))
-
-        bar = ctk.CTkFrame(win, fg_color="transparent")
-        bar.grid(row=1, column=1, sticky="e", padx=28, pady=18)
-        ctk.CTkButton(bar, text=tr("cancel"), width=110, fg_color="transparent",
-                      border_width=1, border_color="#3a3a40", hover_color=CARD,
-                      command=sluiten).grid(row=0, column=0, padx=(0, 10))
-        ctk.CTkButton(bar, text=tr("apply"), width=110, fg_color="transparent",
-                      border_width=1, border_color=ACCENT, text_color=ACCENT,
-                      hover_color=CARD, command=toepassen).grid(
-            row=0, column=1, padx=(0, 10))
-        ctk.CTkButton(bar, text=tr("save"), width=110, fg_color=ACCENT,
-                      hover_color=ACCENT_H,
-                      command=lambda: (toepassen(), sluiten())).grid(row=0, column=2)
-
-        win.protocol("WM_DELETE_WINDOW", sluiten)
-        show("general")
-
-
 # ---------------------------------------------------------------- plakken
 
-def paste_text(text, restore_clipboard=True):
+def paste_text(text, restore_clipboard=True, press_enter=False):
     import keyboard
     import pyperclip
 
@@ -1504,6 +2452,9 @@ def paste_text(text, restore_clipboard=True):
         time.sleep(0.05)
 
     keyboard.send("ctrl+v")
+    if press_enter:
+        time.sleep(0.15)
+        keyboard.send("enter")
 
     if restore_clipboard and old is not None:
         def _restore():
@@ -1535,12 +2486,25 @@ class DicteerApp:
         self.overlay = None
         self.history = load_history()
         self._busy = threading.Lock()
-        self._hotkey_handle = None
-        self._esc_handle = None
+        self._hotkey_handles = []
+        self._mouse_handles = []
+        self.last_text = ""
         self._discord_worker = DiscordMuteWorker(self)
+        self._app_mute = AppMuteWorker(self)
         self._media = MediaController(self)
         self.preview_text = ""
+        self.enter_once_off = False  # auto-enter alleen voor dit dictaat uit
         self.stats = load_stats()
+        self.update_info = None
+        self.vocab = load_vocabulary()
+        self.repl = load_replacements()
+        # migratie: woordenboek uit config.json (v27) naar losse bestanden
+        if not self.vocab and self.cfg.get("vocabulary"):
+            self.vocab = [str(w) for w in self.cfg["vocabulary"]]
+            save_vocabulary(self.vocab)
+        if not self.repl and self.cfg.get("replacements"):
+            self.repl = dict(self.cfg["replacements"])
+            save_replacements(self.repl)
 
     def _beep(self, freq, dur_ms):
         if self.cfg.get("beep", True):
@@ -1561,11 +2525,13 @@ class DicteerApp:
                 attempts.append(("cpu", "int8"))
 
             last_err = None
+            geladen = None
             for dev, ctype in attempts:
                 try:
                     log.info("Model %s laden op %s (%s)...", self.cfg["model"], dev, ctype)
                     self.model = WhisperModel(self.cfg["model"], device=dev, compute_type=ctype)
                     log.info("Model geladen op %s.", dev)
+                    geladen = dev
                     break
                 except Exception as e:
                     log.warning("Laden op %s mislukt: %s", dev, e)
@@ -1576,6 +2542,9 @@ class DicteerApp:
 
             self.set_state("klaar")
             self._beep(880, 100)
+            if geladen == "cpu" and device == "auto":
+                # geen NVIDIA-GPU (AMD/Intel of geen kaart): eerlijk melden
+                self._notify(tr("n_cpu_mode"))
             try:
                 n = repair_microphone()
                 if n:
@@ -1614,10 +2583,12 @@ class DicteerApp:
             return
         try:
             self.preview_text = ""
+            self.enter_once_off = False
             self.recorder.start(self.cfg.get("input_device", "auto"))
             self.set_state("opname")
             self._beep(1000, 120)
             self._discord_mute(True)
+            self._app_mute_request(True)
             self._media_pause()
             if self.cfg.get("live_preview", True):
                 threading.Thread(target=self._preview_loop, daemon=True).start()
@@ -1632,6 +2603,7 @@ class DicteerApp:
         audio = self.recorder.stop()
         self.preview_text = ""
         self._discord_mute(False)
+        self._app_mute_request(False)
         self._media_resume()
         self._beep(700, 120)
         self.set_state("verwerken")
@@ -1650,16 +2622,23 @@ class DicteerApp:
                     language=lang,
                     beam_size=int(self.cfg["beam_size"]),
                     vad_filter=True,
+                    initial_prompt=self._vocab_prompt(),
                 )
                 text = " ".join(s.text.strip() for s in segments).strip()
+                text = apply_replacements(text, self.repl)
+                if text:
+                    self.last_text = text
                 log.info("Transcriptie (%s): %r", getattr(info, "language", "?"), text)
                 if text:
                     self._add_history(text)
+                    self._add_project_entry(text)
                     self.stats["dictations"] += 1
                     self.stats["words"] += len(text.split())
                     self.stats["seconds"] += len(audio) / SAMPLE_RATE
                     save_stats(self.stats)
-                    paste_text(text, self.cfg.get("restore_clipboard", True))
+                    paste_text(text, self.cfg.get("restore_clipboard", True),
+                               bool(self.cfg.get("auto_enter", False))
+                               and not self.enter_once_off)
             except Exception:
                 log.exception("Transcriptie mislukt")
             finally:
@@ -1691,13 +2670,59 @@ class DicteerApp:
             pass
         self.stop_and_transcribe()
 
-    def register_hotkey(self):
+    def _register_keyboard(self):
         import keyboard
-        self._hotkey_handle = keyboard.add_hotkey(
+        self._hotkey_handles = [keyboard.add_hotkey(
             self.cfg["hotkey"], self.on_hotkey,
             suppress=bool(self.cfg.get("suppress_hotkey", True)),
-        )
-        self._esc_handle = keyboard.add_hotkey("esc", self.on_escape, suppress=False)
+        )]
+        self._hotkey_handles.append(
+            keyboard.add_hotkey("esc", self.on_escape, suppress=False))
+        rp = str(self.cfg.get("repaste_hotkey", "")).strip()
+        if rp:
+            try:
+                self._hotkey_handles.append(
+                    keyboard.add_hotkey(rp, self.on_repaste, suppress=True))
+            except Exception:
+                log.exception("Repaste-sneltoets ongeldig: %s", rp)
+
+    def suspend_hotkeys(self):
+        """Pauzeer de globale sneltoetsen (tijdens het vastleggen van een
+        nieuwe combinatie in de instellingen). Vangnet: na 25 s automatisch
+        weer actief, ook als de UI vergeet te hervatten."""
+        import keyboard
+        for h in self._hotkey_handles:
+            try:
+                keyboard.remove_hotkey(h)
+            except Exception:
+                pass
+        self._hotkey_handles = []
+        timer = threading.Timer(25.0, self.resume_hotkeys)
+        timer.daemon = True
+        timer.start()
+
+    def resume_hotkeys(self):
+        if self._hotkey_handles:
+            return  # al actief
+        try:
+            self._register_keyboard()
+        except Exception:
+            log.exception("Sneltoetsen hervatten mislukt")
+
+    def register_hotkey(self):
+        self._register_keyboard()
+        self._mouse_handles = []
+        btn = self.cfg.get("mouse_button", "none")
+        if btn in ("x", "x2"):
+            try:
+                import mouse
+                self._mouse_handles.append(mouse.on_button(
+                    self._mouse_down, buttons=(btn,), types=("down",)))
+                self._mouse_handles.append(mouse.on_button(
+                    self._mouse_up, buttons=(btn,), types=("up",)))
+                log.info("Muisknop-PTT actief: %s", btn)
+            except Exception:
+                log.exception("Muisknop-PTT registreren mislukt")
         log.info("Sneltoets actief: %s (modus: %s)", self.cfg["hotkey"], self.cfg["mode"])
 
     def reload_config(self, icon=None, item=None):
@@ -1706,13 +2731,25 @@ class DicteerApp:
         import keyboard
         old = self.cfg
         self.cfg = load_config()
+        for h in self._hotkey_handles:
+            try:
+                keyboard.remove_hotkey(h)
+            except Exception:
+                pass
+        self._hotkey_handles = []
         try:
-            keyboard.remove_hotkey(self._hotkey_handle)
-            if self._esc_handle is not None:
-                keyboard.remove_hotkey(self._esc_handle)
+            import mouse
+            for h in self._mouse_handles:
+                try:
+                    mouse.unhook(h)
+                except Exception:
+                    pass
         except Exception:
-            keyboard.unhook_all()
+            pass
+        self._mouse_handles = []
         self.register_hotkey()
+        self.vocab = load_vocabulary()
+        self.repl = load_replacements()
         if (old["model"] != self.cfg["model"]) or (old["device"] != self.cfg["device"]):
             self.model = None
             self.set_state("laden")
@@ -1738,6 +2775,11 @@ class DicteerApp:
     def _add_history(self, text):
         if not self.cfg.get("history", True):
             return
+        try:
+            with open(DICTATIONS_PATH, "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M')}] {text}\n")
+        except Exception:
+            pass
         self.history.insert(0, {"t": time.strftime("%H:%M"), "text": text})
         self.history = self.history[:10]
         save_history(self.history)
@@ -1746,6 +2788,27 @@ class DicteerApp:
                 self.icon.update_menu()
             except Exception:
                 pass
+
+    def _add_project_entry(self, text):
+        """Bewaar het dictaat ook onder het actieve project (indien aan)."""
+        if not self.cfg.get("projects_enabled", False):
+            return
+        naam = str(self.cfg.get("current_project", "")).strip()
+        if naam:
+            append_project_entry(naam, text)
+
+    def next_project(self, *args):
+        """Wissel (klik in de overlay) naar het volgende project in de lijst."""
+        namen = load_projects()
+        if not namen:
+            return
+        huidig = str(self.cfg.get("current_project", ""))
+        try:
+            i = (namen.index(huidig) + 1) % len(namen)
+        except ValueError:
+            i = 0
+        self.cfg["current_project"] = namen[i]
+        save_config(self.cfg)
 
     def _copy_history(self, text):
         def handler(icon, item):
@@ -1765,6 +2828,122 @@ class DicteerApp:
 
     def _toggle_autostart(self, icon=None, item=None):
         set_autostart(not autostart_enabled())
+
+    def _vocab_prompt(self):
+        """Whisper-hint met eigen woorden/namen voor betere herkenning."""
+        vocab = [str(w).strip() for w in self.vocab if str(w).strip()]
+        if not vocab:
+            return None
+        return "Glossary: " + ", ".join(vocab)
+
+    def _mouse_down(self):
+        if not self.recorder.recording:
+            self._mouse_ptt = True
+            self.start_recording()
+
+    def _mouse_up(self):
+        if getattr(self, "_mouse_ptt", False) and self.recorder.recording:
+            self._mouse_ptt = False
+            self.stop_and_transcribe()
+
+    def on_repaste(self):
+        """Plak het laatste dictaat opnieuw."""
+        text = self.last_text or (self.history[0].get("text", "")
+                                  if self.history else "")
+        if text:
+            threading.Thread(
+                target=paste_text, args=(text,),
+                kwargs={"restore_clipboard": self.cfg.get("restore_clipboard", True),
+                        "press_enter": bool(self.cfg.get("auto_enter", False))},
+                daemon=True).start()
+
+    def backup_settings(self, pad):
+        import zipfile
+        if not pad:
+            return
+        try:
+            with zipfile.ZipFile(pad, "w", zipfile.ZIP_DEFLATED) as z:
+                for f in (CONFIG_PATH, VOCAB_PATH, REPL_PATH, HISTORY_PATH,
+                          STATS_PATH, DICTATIONS_PATH, DISCORD_TOKEN_PATH,
+                          PROJECTS_PATH):
+                    if os.path.exists(f):
+                        z.write(f, os.path.basename(f))
+                if os.path.isdir(PROJECTS_DIR):
+                    for naam in os.listdir(PROJECTS_DIR):
+                        p = os.path.join(PROJECTS_DIR, naam)
+                        if os.path.isfile(p):
+                            z.write(p, "projects/" + naam)
+            self._notify(tr("n_backup_ok"))
+        except Exception:
+            log.exception("Backup mislukt")
+            self._notify(tr("n_backup_fail"))
+
+    def restore_settings(self, pad):
+        import zipfile
+        if not pad:
+            return
+        try:
+            toegestaan = {os.path.basename(p) for p in (
+                CONFIG_PATH, VOCAB_PATH, REPL_PATH, HISTORY_PATH,
+                STATS_PATH, DICTATIONS_PATH, DISCORD_TOKEN_PATH,
+                PROJECTS_PATH)}
+            with zipfile.ZipFile(pad) as z:
+                for naam in z.namelist():
+                    basis = os.path.basename(naam)
+                    if naam.replace("\\", "/").startswith("projects/") and basis:
+                        os.makedirs(PROJECTS_DIR, exist_ok=True)
+                        with open(os.path.join(PROJECTS_DIR, basis), "wb") as f:
+                            f.write(z.read(naam))
+                    elif basis in toegestaan:
+                        z.extract(naam, APP_DIR)
+            self.history = load_history()
+            self.stats = load_stats()
+            threading.Thread(target=self.reload_config, daemon=True).start()
+            self._notify(tr("n_restore_ok"))
+        except Exception:
+            log.exception("Backup terugzetten mislukt")
+            self._notify(tr("n_restore_fail"))
+
+    def export_dictations(self, pad):
+        if not os.path.exists(DICTATIONS_PATH):
+            self._notify(tr("n_empty"))
+            return
+        if not pad:
+            return
+        try:
+            with open(DICTATIONS_PATH, encoding="utf-8") as f:
+                inhoud = f.read()
+            with open(pad, "w", encoding="utf-8") as f:
+                f.write("# Dicteer - dictations\n\n" + inhoud)
+            self._notify(tr("n_export_ok"))
+        except Exception:
+            log.exception("Export mislukt")
+
+    def copy_dictations(self):
+        import pyperclip
+        try:
+            with open(DICTATIONS_PATH, encoding="utf-8") as f:
+                pyperclip.copy(f.read())
+            self._notify(tr("n_copied"))
+        except Exception:
+            self._notify(tr("n_empty"))
+
+    def _update_loop(self):
+        """Controleer bij de start en daarna dagelijks op nieuwe releases."""
+        time.sleep(10)
+        gemeld = None
+        while True:
+            if self.cfg.get("check_updates", True):
+                try:
+                    info = check_for_update()
+                    if info:
+                        self.update_info = info
+                        if gemeld != info["tag"]:
+                            gemeld = info["tag"]
+                            self._notify(tr("n_update").format(tag=info["tag"]))
+                except Exception:
+                    log.info("Update-check mislukt (geen internet?)")
+            time.sleep(24 * 3600)
 
     def open_settings(self, icon=None, item=None):
         """Open het instellingenvenster (dubbelklik op tray-icoon of via menu)."""
@@ -1794,6 +2973,13 @@ class DicteerApp:
         if not self._discord_configured():
             return
         self._discord_worker.request(mute)
+
+    def _app_mute_request(self, mute):
+        """Demp andere apps (indien aan). Herstellen gebeurt altijd, ook als
+        de instelling net is uitgezet - anders blijven apps gedempt staan."""
+        if mute and not self.cfg.get("mute_other_apps", False):
+            return
+        self._app_mute.request(mute)
 
     def _media_pause(self):
         if not self.cfg.get("pause_media", False):
@@ -1829,7 +3015,8 @@ class DicteerApp:
                 lang = None if lang == "auto" else lang
                 segments, _ = self.model.transcribe(
                     audio, language=lang, beam_size=1, vad_filter=True,
-                    condition_on_previous_text=False)
+                    condition_on_previous_text=False,
+                    initial_prompt=self._vocab_prompt())
                 tekst = " ".join(s.text.strip() for s in segments).strip()
                 if self.recorder.recording:
                     self.preview_text = tekst
@@ -1849,6 +3036,7 @@ class DicteerApp:
         self.recorder.stop()  # audio bewust weggooien
         self.preview_text = ""
         self._discord_mute(False)
+        self._app_mute_request(False)
         self._media_resume()
         self._beep(400, 150)
         self.set_state("klaar")
@@ -1876,61 +3064,15 @@ class DicteerApp:
 
     # ---------- traymenu
 
-    def _set_mode(self, mode):
-        def handler(icon, item):
-            self.cfg["mode"] = mode
-            save_config(self.cfg)
-        return handler
-
-    def _set_lang(self, lang):
-        def handler(icon, item):
-            self.cfg["language"] = lang
-            save_config(self.cfg)
-        return handler
-
-    def _toggle_cfg(self, key):
-        def handler(icon, item):
-            self.cfg[key] = not self.cfg.get(key, False)
-            save_config(self.cfg)
-            if key in ("discord_mute", "discord_deafen") and self.cfg[key] \
-                    and not self._discord_configured():
-                self._notify(tr("n_fill"))
-        return handler
-
     def build_menu(self):
-        import pystray
+        """Minimaal traymenu: alles staat in het instellingenvenster."""
         from pystray import Menu, MenuItem as Item
         return Menu(
             Item(lambda item: f"{tr('menu_hotkey')}: {self.cfg['hotkey']}",
                  None, enabled=False),
             Menu.SEPARATOR,
             Item(tr("menu_settings"), self.open_settings, default=True),
-            Item(tr("menu_mode"), Menu(
-                Item(tr("menu_mode_hold"), self._set_mode("hold"),
-                     checked=lambda i: self.cfg["mode"] == "hold", radio=True),
-                Item(tr("menu_mode_toggle"), self._set_mode("toggle"),
-                     checked=lambda i: self.cfg["mode"] == "toggle", radio=True),
-            )),
-            Item(tr("menu_lang"), Menu(*[
-                Item(naam or tr("lang_auto"), self._set_lang(code), radio=True,
-                     checked=(lambda c: (lambda i: self.cfg["language"] == c))(code))
-                for code, naam in LANGUAGES
-            ])),
             Item(tr("menu_history"), Menu(self._history_items)),
-            Menu.SEPARATOR,
-            Item(tr("menu_dc_mute"), self._toggle_cfg("discord_mute"),
-                 checked=lambda i: bool(self.cfg.get("discord_mute", False))),
-            Item(tr("menu_dc_deafen"), self._toggle_cfg("discord_deafen"),
-                 checked=lambda i: bool(self.cfg.get("discord_deafen", False))),
-            Item(tr("menu_media"), self._toggle_cfg("pause_media"),
-                 checked=lambda i: bool(self.cfg.get("pause_media", False))),
-            Item(tr("menu_dc_link"), self._discord_link),
-            Item(tr("menu_autostart"), self._toggle_autostart,
-                 checked=lambda i: autostart_enabled()),
-            Menu.SEPARATOR,
-            Item(tr("menu_config"), lambda icon, item: os.startfile(CONFIG_PATH)),
-            Item(tr("menu_reload"), self.reload_config),
-            Item(tr("menu_log"), lambda icon, item: os.startfile(LOG_PATH)),
             Menu.SEPARATOR,
             Item(tr("menu_quit"), self.quit),
         )
@@ -1961,6 +3103,7 @@ class DicteerApp:
         if self.cfg.get("show_settings_on_start", True):
             self.overlay.open_settings()
         threading.Thread(target=self.load_model, daemon=True).start()
+        threading.Thread(target=self._update_loop, daemon=True).start()
         self.icon.run_detached()       # tray-icoon in eigen thread
         self.overlay.run_mainloop()    # UI op de hoofdthread (blokkeert)
         try:

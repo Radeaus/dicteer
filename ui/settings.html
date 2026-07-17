@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dicteer</title>
+<style>
+/* ================================================================
+   Dicteer — settings
+   Donker, verfijnd, instrument-achtig. Geen gradients, geen glow.
+   Systeemtypografie (Segoe UI Variable) + mono-accenten (Cascadia).
+   ================================================================ */
+:root {
+  color-scheme: dark;
+  --bg:        #0e0f0e;
+  --side:      #0b0c0b;
+  --panel:     #151715;
+  --panel-2:   #1b1e1b;
+  --hair:      rgba(255,255,255,.07);
+  --hair-2:    rgba(255,255,255,.11);
+  --text:      #e9ebe7;
+  --muted:     #9ba49c;
+  --faint:     #67706a;
+  --accent:    #58b47e;
+  --accent-h:  #6cc290;
+  --accent-ink:#0b1710;
+  --red:       #e0605a;
+  --amber:     #d9a03c;
+  --ring:      rgba(88,180,126,.35);
+  --sans: "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --disp: "Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
+  --mono: "Cascadia Mono","Cascadia Code",Consolas,monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { height:100%; }
+body {
+  font-family:var(--sans); font-size:13px; line-height:1.45;
+  background:var(--bg); color:var(--text);
+  overflow:hidden; user-select:none; cursor:default;
+}
+input,textarea,select { user-select:text; }
+
+::-webkit-scrollbar { width:10px; }
+::-webkit-scrollbar-thumb { background:#272b27; border-radius:5px; border:2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background:#333833; }
+::-webkit-scrollbar-track { background:transparent; }
+
+#app { display:flex; height:100vh; }
+
+/* ---------------- zijbalk ---------------- */
+#side {
+  width:212px; flex:none; background:var(--side);
+  border-right:1px solid var(--hair);
+  display:flex; flex-direction:column; padding:20px 10px 14px;
+}
+.brand { display:flex; align-items:center; gap:9px; padding:0 10px 4px; }
+.brand svg { flex:none; }
+.brand-name {
+  font-family:var(--disp); font-size:17px; font-weight:600;
+  letter-spacing:-.01em;
+}
+.brand-ver {
+  font-family:var(--mono); font-size:10px; color:var(--faint);
+  padding:0 10px 18px; margin-left:31px; letter-spacing:.04em;
+}
+nav { display:flex; flex-direction:column; gap:1px; }
+.nav-item {
+  display:flex; align-items:center; gap:10px;
+  padding:7px 10px; border-radius:7px; border:1px solid transparent;
+  color:var(--muted); font-size:13px; cursor:default;
+  transition:background .1s ease, color .1s ease;
+}
+.nav-item svg { flex:none; opacity:.75; }
+.nav-item:hover { background:rgba(255,255,255,.04); color:var(--text); }
+.nav-item.active {
+  background:var(--panel); border-color:var(--hair);
+  color:var(--text);
+}
+.nav-item.active svg { opacity:1; color:var(--accent); }
+#side-foot { margin-top:auto; padding:10px; }
+#update-pill {
+  display:none; align-items:center; gap:8px; width:100%;
+  padding:8px 10px; border-radius:7px;
+  background:rgba(217,160,60,.08); border:1px solid rgba(217,160,60,.25);
+  color:var(--amber); font-size:12px; cursor:default;
+}
+#update-pill:hover { background:rgba(217,160,60,.14); }
+#update-pill .dot { width:6px; height:6px; border-radius:50%; background:var(--amber); flex:none; }
+#kofi {
+  display:flex; justify-content:center; margin-top:10px;
+  opacity:.85; transition:opacity .12s ease;
+}
+#kofi:hover { opacity:1; }
+#kofi.fallback img { display:none; }
+#kofi.fallback::after {
+  content:"\2665  Buy me a coffee";
+  font-size:12px; color:var(--muted); padding:7px 10px; width:100%;
+  text-align:center; border:1px solid var(--hair-2); border-radius:7px;
+}
+#kofi.fallback:hover::after { color:var(--text); background:var(--panel-2); }
+
+/* ---------------- inhoud ---------------- */
+#main { flex:1; min-width:0; display:flex; flex-direction:column; }
+#pages { flex:1; overflow-y:auto; padding:30px 36px 96px; }
+.page { max-width:600px; display:none; }
+.page.active { display:block; animation:pagein .16s ease; }
+@keyframes pagein { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:none; } }
+.page h1 {
+  font-family:var(--disp); font-size:19px; font-weight:600;
+  letter-spacing:-.01em; margin-bottom:22px;
+}
+
+/* groepen & rijen */
+.group { margin-bottom:26px; }
+.group-title {
+  font-size:11px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.08em; color:var(--faint); margin:0 2px 8px;
+}
+.panel {
+  background:var(--panel); border:1px solid var(--hair); border-radius:9px;
+}
+.row {
+  display:flex; align-items:center; gap:16px;
+  padding:10px 14px; min-height:44px;
+}
+.row + .row { border-top:1px solid var(--hair); }
+.row-label { flex:1; min-width:0; }
+.row-sub { font-size:11.5px; color:var(--faint); margin-top:1px; }
+.row-ctl { flex:none; display:flex; align-items:center; gap:8px; }
+.row.stack { flex-direction:column; align-items:stretch; gap:8px; }
+.hint { font-size:11.5px; color:var(--faint); margin:7px 2px 0; }
+
+/* ---------------- controls ---------------- */
+.sw {
+  position:relative; width:34px; height:20px; border-radius:10px;
+  background:#2b302b; border:1px solid var(--hair-2);
+  transition:background .12s ease, border-color .12s ease; flex:none;
+}
+.sw::after {
+  content:""; position:absolute; top:2px; left:2px;
+  width:14px; height:14px; border-radius:50%;
+  background:#a9b1a9; transition:transform .12s ease, background .12s ease;
+}
+.sw[aria-checked="true"] { background:var(--accent); border-color:var(--accent); }
+.sw[aria-checked="true"]::after { transform:translateX(14px); background:var(--accent-ink); }
+.sw:hover { border-color:var(--hair-2); filter:brightness(1.08); }
+
+select.sel {
+  appearance:none; -webkit-appearance:none;
+  font:inherit; color:var(--text);
+  background:var(--panel-2) url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239ba49c' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 9px center;
+  border:1px solid var(--hair-2); border-radius:6px;
+  padding:5px 26px 5px 9px; min-width:150px; max-width:230px;
+  outline:none; text-overflow:ellipsis;
+}
+select.sel:hover { border-color:#3a413a; }
+select.sel:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--ring); }
+
+input.txt {
+  font:inherit; color:var(--text); background:var(--panel-2);
+  border:1px solid var(--hair-2); border-radius:6px;
+  padding:5px 9px; width:190px; outline:none;
+}
+input.txt.mono { font-family:var(--mono); font-size:12px; }
+input.txt:hover { border-color:#3a413a; }
+input.txt:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--ring); }
+input.txt::placeholder { color:var(--faint); }
+
+/* sneltoets-keycaps */
+.hk {
+  display:flex; align-items:center; gap:5px; min-width:150px; min-height:30px;
+  padding:4px 9px; border-radius:6px;
+  background:var(--panel-2); border:1px solid var(--hair-2);
+  transition:border-color .12s ease;
+}
+.hk:hover { border-color:#3a413a; }
+.hk.capturing { border-color:var(--accent); box-shadow:0 0 0 2px var(--ring); }
+.hk .cap-hint { font-size:11.5px; color:var(--accent); }
+kbd {
+  font-family:var(--mono); font-size:11px; color:var(--text);
+  background:#252925; border:1px solid #3a403a; border-bottom-width:2px;
+  border-radius:4px; padding:1px 6px 2px; line-height:1.4;
+}
+.hk-plus { color:var(--faint); font-size:10px; }
+.icon-btn {
+  display:flex; align-items:center; justify-content:center;
+  width:26px; height:26px; border-radius:6px; border:1px solid transparent;
+  color:var(--faint); flex:none;
+}
+.icon-btn:hover { background:var(--panel-2); color:var(--muted); border-color:var(--hair); }
+
+/* segmented control */
+.seg { display:flex; background:var(--panel-2); border:1px solid var(--hair-2); border-radius:6px; padding:2px; }
+.seg button {
+  font:inherit; font-size:12px; color:var(--muted);
+  background:transparent; border:1px solid transparent; border-radius:4px;
+  padding:3px 14px;
+}
+.seg button.active { background:#2b302b; border-color:var(--hair-2); color:var(--text); }
+.seg button:not(.active):hover { color:var(--text); }
+
+/* slider */
+input[type=range] {
+  -webkit-appearance:none; width:160px; height:18px; background:transparent;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height:4px; border-radius:2px; background:#2b302b;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+  background:var(--accent); margin-top:-5px; border:none;
+  transition:transform .1s ease;
+}
+input[type=range]::-webkit-slider-thumb:hover { transform:scale(1.15); }
+.range-val { font-family:var(--mono); font-size:11px; color:var(--muted); width:34px; text-align:right; }
+
+/* knoppen */
+button { font:inherit; color:inherit; background:none; border:none; cursor:default; }
+.btn {
+  font-size:12.5px; padding:6px 14px; border-radius:6px;
+  border:1px solid var(--hair-2); background:var(--panel-2); color:var(--text);
+  transition:background .1s ease, border-color .1s ease;
+}
+.btn:hover { background:#242824; border-color:#3a413a; }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600; }
+.btn.primary:hover { background:var(--accent-h); border-color:var(--accent-h); }
+.btn.ghost { background:transparent; }
+.btn.ghost:hover { background:var(--panel-2); }
+
+/* textarea (woordenboek) */
+textarea.ta {
+  font-family:var(--mono); font-size:12px; line-height:1.6; color:var(--text);
+  background:var(--panel-2); border:1px solid var(--hair-2); border-radius:7px;
+  padding:9px 11px; width:100%; height:150px; resize:vertical; outline:none;
+}
+textarea.ta:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--ring); }
+
+/* vervangregels */
+.repl-add { display:flex; gap:8px; }
+.repl-add input { flex:1; width:auto; }
+.repl-list { display:flex; flex-direction:column; }
+.repl-item {
+  display:flex; align-items:center; gap:10px; padding:7px 4px 7px 10px;
+  border-top:1px solid var(--hair);
+}
+.repl-item:first-child { border-top:none; }
+.repl-item .from, .repl-item .to { font-family:var(--mono); font-size:12px; }
+.repl-item .from { color:var(--muted); }
+.repl-arrow { color:var(--faint); font-size:11px; }
+.repl-del { margin-left:auto; }
+.repl-del:hover { color:var(--red); }
+.repl-empty { padding:10px 10px 12px; font-size:12px; color:var(--faint); }
+
+/* projecten */
+.proj-item {
+  display:flex; align-items:center; gap:10px; padding:8px 10px 8px 12px;
+  border-top:1px solid var(--hair);
+}
+.proj-item:first-child { border-top:none; }
+.proj-dot { width:7px; height:7px; border-radius:50%; background:#333833; flex:none; }
+.proj-dot.on { background:var(--accent); }
+.proj-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.proj-count { font-family:var(--mono); font-size:10.5px; color:var(--faint); flex:none; }
+.proj-actions { margin-left:auto; display:flex; align-items:center; gap:6px; flex:none; }
+.btn.small { padding:3px 9px; font-size:11.5px; }
+.proj-badge {
+  font-size:10.5px; color:var(--accent); padding:2px 8px; border-radius:5px;
+  border:1px solid rgba(88,180,126,.35);
+}
+
+/* geschiedenis */
+.hist-item {
+  display:flex; align-items:center; gap:8px; padding:7px 6px 7px 12px;
+  border-top:1px solid var(--hair); min-width:0;
+}
+.hist-item:first-child { border-top:none; }
+.hist-time { font-family:var(--mono); font-size:10.5px; color:var(--faint); flex:none; }
+.hist-text { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px; }
+.hist-text.mono { font-family:var(--mono); font-size:11.5px; color:var(--muted); }
+
+/* statusregel (goed/fout) onder een instelling */
+.status-line {
+  display:none; margin-top:8px; font-size:11.5px; line-height:1.5;
+  padding:7px 10px; border-radius:6px; max-width:420px;
+}
+.status-line.warn {
+  display:block; color:var(--amber);
+  background:rgba(217,160,60,.08); border:1px solid rgba(217,160,60,.25);
+}
+.status-line.ok {
+  display:block; color:var(--accent);
+  background:rgba(88,180,126,.08); border:1px solid rgba(88,180,126,.25);
+}
+
+/* microfoontest */
+.meter {
+  width:130px; height:6px; border-radius:3px; background:#2b302b;
+  overflow:hidden; flex:none;
+}
+.meter-fill {
+  height:100%; width:0%; background:var(--accent); border-radius:3px;
+  transition:width .09s linear;
+}
+
+/* statistieken */
+.stat-row { display:flex; align-items:baseline; gap:16px; padding:13px 14px; }
+.stat-row + .stat-row { border-top:1px solid var(--hair); }
+.stat-row .row-label { flex:1; color:var(--muted); }
+.stat-val { font-family:var(--mono); font-size:20px; letter-spacing:-.02em; }
+.stat-val small { font-size:12px; color:var(--faint); margin-left:3px; letter-spacing:0; }
+
+/* discord-stappen */
+.steps { padding:4px 14px 12px; }
+.steps li { margin:8px 0 8px 16px; color:var(--muted); font-size:12.5px; }
+.steps li::marker { color:var(--accent); font-family:var(--mono); font-size:11px; }
+
+/* opslaan-balk */
+#savebar {
+  position:absolute; left:212px; right:0; bottom:0;
+  display:flex; align-items:center; gap:12px;
+  padding:12px 36px; background:rgba(14,15,14,.92);
+  border-top:1px solid var(--hair);
+  backdrop-filter:blur(6px);
+  transform:translateY(110%); transition:transform .18s ease;
+}
+#savebar.show { transform:none; }
+#savebar .msg { flex:1; font-size:12.5px; color:var(--muted); }
+#savebar .msg::before {
+  content:""; display:inline-block; width:7px; height:7px; border-radius:50%;
+  background:var(--amber); margin-right:9px; vertical-align:1px;
+}
+
+/* toast */
+#toast {
+  position:absolute; bottom:22px; left:50%; transform:translate(-50%,8px);
+  background:var(--panel-2); border:1px solid var(--hair-2); border-radius:7px;
+  padding:8px 16px; font-size:12.5px; opacity:0; pointer-events:none;
+  transition:opacity .15s ease, transform .15s ease;
+}
+#toast.show { opacity:1; transform:translate(-50%,0); }
+#toast .ok { color:var(--accent); margin-right:7px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+        <rect x="2"  y="8"  width="2.6" height="6"  rx="1.3" fill="#58b47e"/>
+        <rect x="6.4" y="5" width="2.6" height="12" rx="1.3" fill="#58b47e"/>
+        <rect x="10.8" y="2" width="2.6" height="18" rx="1.3" fill="#58b47e"/>
+        <rect x="15.2" y="6" width="2.6" height="10" rx="1.3" fill="#58b47e" opacity=".65"/>
+        <rect x="19.6" y="9" width="2.6" height="4"  rx="1.3" fill="#58b47e" opacity=".4"/>
+      </svg>
+      <div class="brand-name">Dicteer</div>
+    </div>
+    <div class="brand-ver" id="ver"></div>
+    <nav id="nav"></nav>
+    <div id="side-foot">
+      <button id="update-pill"><span class="dot"></span><span id="update-txt"></span></button>
+      <a id="kofi" href="https://ko-fi.com/G7V323BNTU" title="Buy Me a Coffee at ko-fi.com">
+        <img height="36" style="border:0;height:36px;" src="https://storage.ko-fi.com/cdn/kofi1.png?v=6"
+             alt="Buy Me a Coffee at ko-fi.com"
+             onerror="document.getElementById('kofi').classList.add('fallback')">
+      </a>
+    </div>
+  </aside>
+  <div id="main">
+    <div id="pages"></div>
+  </div>
+</div>
+<div id="savebar">
+  <span class="msg" id="savebar-msg"></span>
+  <button class="btn ghost" id="btn-undo"></button>
+  <button class="btn primary" id="btn-save"></button>
+</div>
+<div id="toast"><span class="ok">&#10003;</span><span id="toast-txt"></span></div>
+<script>
+"use strict";
+/* ============================================================
+   State & bridge
+   ============================================================ */
+let S = null;          // volledige state uit Python
+let cfg = {};          // werkkopie van instellingen
+let orig = "";         // JSON-snapshot voor dirty-check
+let activePage = "general";
+
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const T  = k => (S && S.tr && S.tr[k]) || k;
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function api() {
+  if (window.pywebview && window.pywebview.api) return window.pywebview.api;
+  return MOCK; // preview in gewone browser
+}
+
+/* Demodata zodat de pagina ook los in een browser te bekijken is */
+const MOCK = {
+  state: async () => ({
+    version:"v29", autostart:true, update:null, lang:"nl",
+    cfg:{hotkey:"ctrl+shift+s",mode:"toggle",language:"auto",model:"large-v3-turbo",
+      device:"auto",ui_language:"nl",beep:true,beep_volume:0.15,overlay:true,
+      live_preview:true,input_device:"auto",history:true,discord_mute:false,
+      discord_deafen:false,discord_client_id:"",discord_client_secret:"",
+      pause_media:false,show_settings_on_start:true,check_updates:true,
+      auto_enter:false,mouse_button:"none",repaste_hotkey:"ctrl+shift+v",
+      restore_clipboard:true,projects_enabled:true,current_project:"Project A",
+      mute_other_apps:false},
+    vocab:["Quinten","Dicteer"], repl:{"dick tier":"Dicteer"},
+    projects:[{name:"Project A",count:12,header:""},{name:"Blog",count:3,header:""}],
+    history:[{t:"12:41",text:"Voorbeeld van een gedicteerd zinnetje."},
+             {t:"12:38",text:"Nog een dictaat uit de geschiedenis."}],
+    stats:{dictations:128,words:9421,seconds:4180},
+    mics:["auto","Microfoon (USB Audio)"],
+    languages:[["auto",null],["nl","Nederlands"],["en","English"]],
+    ui_languages:[["en","English"],["nl","Nederlands"]],
+    models:["large-v3-turbo","large-v3","medium","small"],
+    devices:["auto","cuda","cpu"], mouse_buttons:["none","x","x2"],
+    tr:{}
+  }),
+  save: async d => MOCK.state(),
+  stats: async () => ({dictations:128,words:9421,seconds:4180}),
+  repl_add: async (a,b) => ({[a]:b}), repl_remove: async a => ({}),
+  project_add: async n => ({projects:[{name:n,count:0,header:""}],current:n}),
+  project_remove: async n => ({projects:[],current:""}),
+  project_select: async n => ({projects:S.projects,current:n}),
+  project_export: async n => true, project_copy: async n => true,
+  project_set_header: async (n,t) => true,
+  project_entries: async n => ["[2026-07-17 12:41] Voorbeeld van een dictaat."],
+  project_entry_remove: async (n,i) => [],
+  history: async () => (S && S.history) || [],
+  copy_text: async t => true,
+  mic_test_start: async d => true, mic_test_stop: async () => true,
+  mic_level: (() => { let x = 0; return async () => { x = (x + 0.17) % 1; return x; }; })(),
+  hotkeys_suspend: async () => true, hotkeys_resume: async () => true,
+  open_config: async () => true, open_log: async () => true,
+  discord_link: async()=>true, make_shortcut: async()=>true,
+  copy_dictations: async()=>true, backup: async()=>true,
+  restore: async()=>true, export: async()=>true,
+  open_url: async u => window.open(u), close: async()=>true
+};
+
+/* ============================================================
+   Iconen (16px, 1.5px stroke)
+   ============================================================ */
+const IC = {
+  general: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7"/><circle cx="10.5" cy="4.5" r="1.8"/><circle cx="5.5" cy="11.5" r="1.8"/></svg>',
+  recording:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="6" y="1.8" width="4" height="7.5" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.2"/></svg>',
+  dict:     '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 2.5h7.5A1.5 1.5 0 0 1 12 4v9.5H4.5A1.5 1.5 0 0 1 3 12V2.5z"/><path d="M3 11.5A1.5 1.5 0 0 1 4.5 10H12M5.5 5.5h4"/></svg>',
+  folder:   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 4.2a1.4 1.4 0 0 1 1.4-1.4h2.9l1.5 1.7h5.2a1.4 1.4 0 0 1 1.4 1.4v6a1.4 1.4 0 0 1-1.4 1.4H3.2a1.4 1.4 0 0 1-1.4-1.4V4.2z"/></svg>',
+  discord:  '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5.5 3.5C3.5 4 2.5 5 2 7c-.4 1.8-.5 3.5-.3 5 .8.9 2 1.4 3.3 1.6l.8-1.6M10.5 3.5c2 .5 3 1.5 3.5 3.5.4 1.8.5 3.5.3 5-.8.9-2 1.4-3.3 1.6l-.8-1.6M5.5 3.5c1.7-.4 3.3-.4 5 0M4.8 12c2.1.7 4.3.7 6.4 0"/><circle cx="6" cy="8" r=".8" fill="currentColor" stroke="none"/><circle cx="10" cy="8" r=".8" fill="currentColor" stroke="none"/></svg>',
+  stats:    '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 13.5v-4M6.2 13.5V6M9.8 13.5V8.5M13.5 13.5v-9"/></svg>',
+  system:   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="8.5" rx="1.5"/><path d="M6 13.5h4"/></svg>',
+  clock:    '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.8V8l2.4 1.6"/></svg>',
+  copy:     '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><path d="M8 1.5H2.5a1 1 0 0 0-1 1V8"/></svg>',
+  x:        '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>',
+  pencil:   '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8.3 1.7l2 2L4 10l-2.6.6L2 8l6.3-6.3z"/></svg>',
+  ext:      '<svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 2H2v7h7V6.5M6.5 1.5h3v3M9.2 1.8L5 6"/></svg>'
+};
+
+/* ============================================================
+   Herbruikbare bouwstenen
+   ============================================================ */
+function rowSwitch(key, label, sub) {
+  return `<div class="row"><div class="row-label">${esc(label)}${sub?`<div class="row-sub">${esc(sub)}</div>`:""}</div>
+    <div class="row-ctl"><button class="sw" role="switch" data-sw="${key}" aria-checked="${!!cfg[key]}"></button></div></div>`;
+}
+function rowSelect(key, label, opts, sub) {
+  const o = opts.map(([v,n]) => `<option value="${esc(v)}"${String(cfg[key])===String(v)?" selected":""}>${esc(n)}</option>`).join("");
+  return `<div class="row"><div class="row-label">${esc(label)}${sub?`<div class="row-sub">${esc(sub)}</div>`:""}</div>
+    <div class="row-ctl"><select class="sel" data-sel="${key}">${o}</select></div></div>`;
+}
+function kbdHtml(combo) {
+  const parts = String(combo||"").split("+").filter(Boolean);
+  if (!parts.length) return `<span class="cap-hint">${esc(T("press_keys"))}</span>`;
+  return parts.map(p => `<kbd>${esc(p)}</kbd>`).join('<span class="hk-plus">+</span>');
+}
+function rowHotkey(key, label, sub) {
+  return `<div class="row"><div class="row-label">${esc(label)}${sub?`<div class="row-sub">${esc(sub)}</div>`:""}</div>
+    <div class="row-ctl"><button class="hk" data-hk="${key}" title="${esc(T("hk_click"))}">${kbdHtml(cfg[key])}</button>
+    <button class="icon-btn" data-hktext="${key}" title="${esc(T("edit_text"))}">${IC.pencil}</button></div></div>`;
+}
+function rowButton(label, btnLabel, action, primary, sub) {
+  return `<div class="row"><div class="row-label">${esc(label)}${sub?`<div class="row-sub">${esc(sub)}</div>`:""}</div>
+    <div class="row-ctl"><button class="btn${primary?" primary":""}" data-act="${action}">${esc(btnLabel)}</button></div></div>`;
+}
+
+/* ============================================================
+   Pagina's
+   ============================================================ */
+const PAGES = [
+  ["general",  "tab_general",  () => IC.general],
+  ["recording","tab_recording",() => IC.recording],
+  ["dict",     "tab_dict",     () => IC.dict],
+  ["projects", "tab_projects", () => IC.folder],
+  ["history",  "tab_history",  () => IC.clock],
+  ["discord",  null,           () => IC.discord],
+  ["stats",    "tab_stats",    () => IC.stats],
+  ["system",   "tab_system",   () => IC.system],
+];
+
+function renderNav() {
+  $("#nav").innerHTML = PAGES.map(([id, trKey, icon]) =>
+    `<button class="nav-item${id===activePage?" active":""}" data-page="${id}">${icon()}<span>${esc(trKey?T(trKey):"Discord")}</span></button>`
+  ).join("");
+}
+
+function pageGeneral() {
+  const langs = S.languages.map(([c,n]) => [c, n || T("lang_auto")]);
+  const uiLangs = S.ui_languages;
+  return `<h1>${esc(T("tab_general"))}</h1>
+  <div class="group"><div class="group-title">${esc(T("grp_controls"))}</div><div class="panel">
+    ${rowHotkey("hotkey", T("hotkey_lbl"), T("hotkey_sub"))}
+    <div class="row"><div class="row-label">${esc(T("mode"))}<div class="row-sub" id="mode-sub"></div></div>
+      <div class="row-ctl"><div class="seg" data-seg="mode">
+        <button data-v="toggle">${esc(T("seg_toggle"))}</button>
+        <button data-v="hold">${esc(T("seg_hold"))}</button>
+      </div></div></div>
+    ${rowSelect("mouse_button", T("mouse_ptt"), S.mouse_buttons.map(b=>[b, b==="none"?T("opt_none"):b.toUpperCase()]))}
+    ${rowHotkey("repaste_hotkey", T("repaste"))}
+  </div></div>
+  <div class="group"><div class="group-title">${esc(T("grp_language"))}</div><div class="panel">
+    ${rowSelect("language", T("spoken_lang"), langs)}
+    ${rowSelect("model", T("model_lbl"), S.models.map(m=>[m,m]), T("model_sub"))}
+    ${rowSelect("device", T("device"), S.devices.map(d=>[d,d]))}
+    ${rowSelect("ui_language", T("ui_lang"), uiLangs)}
+  </div></div>`;
+}
+
+function pageRecording() {
+  return `<h1>${esc(T("tab_recording"))}</h1>
+  <div class="group"><div class="group-title">${esc(T("grp_mic"))}</div><div class="panel">
+    ${rowSelect("input_device", T("mic"), S.mics.map(m=>[m, m==="auto"?T("mic_auto"):m]), T("mic_sub"))}
+    <div class="row"><div class="row-label">${esc(T("mic_test"))}</div>
+      <div class="row-ctl">
+        <div class="meter"><div class="meter-fill" id="mic-fill"></div></div>
+        <button class="btn" id="mic-test-btn">Start</button>
+      </div></div>
+  </div></div>
+  <div class="group"><div class="group-title">${esc(T("grp_during"))}</div><div class="panel">
+    ${rowSwitch("pause_media", T("pause_media"))}
+    <div class="row"><div class="row-label">${esc(T("mute_apps"))}
+        <div class="row-sub">${esc(T("mute_apps_sub"))}</div>
+        <div class="status-line" id="mute-status"></div></div>
+      <div class="row-ctl"><button class="sw" role="switch" data-sw="mute_other_apps" aria-checked="${!!cfg.mute_other_apps}"></button></div></div>
+    ${rowSwitch("discord_mute", T("dc_mute"))}
+    ${rowSwitch("discord_deafen", T("dc_deafen"))}
+    ${rowSwitch("auto_enter", T("auto_enter"), T("auto_enter_sub"))}
+  </div></div>
+  <div class="group"><div class="group-title">${esc(T("tab_audio"))}</div><div class="panel">
+    ${rowSwitch("live_preview", T("live_preview"))}
+    ${rowSwitch("overlay", T("overlay"))}
+    ${rowSwitch("beep", T("beep"))}
+    <div class="row"><div class="row-label">${esc(T("beep_vol_lbl"))}</div>
+      <div class="row-ctl">
+        <input type="range" min="0" max="1" step="0.05" value="${Number(cfg.beep_volume)||0}" data-range="beep_volume">
+        <span class="range-val" id="beepval">${Math.round((Number(cfg.beep_volume)||0)*100)}%</span>
+      </div></div>
+  </div></div>`;
+}
+
+/* live status onder de dempen-schakelaar: klopt de microfoonkeuze? */
+const VIRT_MIC = ["voicemod","voicemeeter","vb-audio","vb-cable","cable",
+                  "virtual","virtueel","sonar","steelseries","broadcast",
+                  "nahimic","goxlr","wave link","wavelink","krisp"];
+function updateMuteStatus() {
+  const el = $("#mute-status");
+  if (!el) return;
+  el.className = "status-line";
+  el.textContent = "";
+  if (!cfg.mute_other_apps) return;
+  const heeftVirtueel = (S.mics || []).some(m =>
+    VIRT_MIC.some(p => String(m).toLowerCase().includes(p)));
+  if (!heeftVirtueel) {
+    el.classList.add("warn"); el.textContent = T("mute_warn_novirt"); return;
+  }
+  const mic = String(cfg.input_device || "auto");
+  if (mic === "auto") {
+    el.classList.add("warn"); el.textContent = T("mute_warn_auto"); return;
+  }
+  const l = mic.toLowerCase();
+  if (VIRT_MIC.some(p => l.includes(p))) {
+    el.classList.add("warn"); el.textContent = T("mute_warn_virtual"); return;
+  }
+  el.classList.add("ok"); el.textContent = T("mute_ok");
+}
+
+function replItems() {
+  const keys = Object.keys(S.repl || {});
+  if (!keys.length) return `<div class="repl-empty">${esc(T("repl_empty"))}</div>`;
+  return keys.map(a => `<div class="repl-item">
+      <span class="from">${esc(a)}</span><span class="repl-arrow">&#8594;</span><span class="to">${esc(S.repl[a])}</span>
+      <button class="icon-btn repl-del" data-repl-del="${esc(a)}" title="${esc(T("btn_remove"))}">${IC.x}</button>
+    </div>`).join("");
+}
+
+function pageDict() {
+  return `<h1>${esc(T("tab_dict"))}</h1>
+  <div class="group"><div class="group-title">${esc(T("dict_words"))}</div>
+    <textarea class="ta" id="vocab" spellcheck="false">${esc((S.vocab||[]).join("\n"))}</textarea>
+    <div class="hint">${esc(T("dict_files_note"))}</div>
+  </div>
+  <div class="group"><div class="group-title">${esc(T("dict_repl"))}</div>
+    <div class="repl-add">
+      <input class="txt mono" id="repl-a" placeholder="${esc(T("dict_wrong"))}" spellcheck="false">
+      <input class="txt mono" id="repl-b" placeholder="${esc(T("dict_right"))}" spellcheck="false">
+      <button class="btn" id="repl-add-btn">${esc(T("btn_add"))}</button>
+    </div>
+    <div class="panel repl-list" id="repl-list" style="margin-top:10px">${replItems()}</div>
+  </div>`;
+}
+
+function projItems() {
+  const list = S.projects || [];
+  if (!list.length) return `<div class="repl-empty">${esc(T("proj_none"))}</div>`;
+  const cur = cfg.current_project || "";
+  return list.map(p => {
+    const active = p.name === cur;
+    return `<div class="proj-item">
+      <span class="proj-dot${active?" on":""}"></span>
+      <span class="proj-name">${esc(p.name)}</span>
+      <span class="proj-count">${p.count} ${esc(T("proj_count_suffix"))}</span>
+      <span class="proj-actions">
+        ${active
+          ? `<span class="proj-badge">${esc(T("proj_active"))}</span>`
+          : `<button class="btn small" data-proj-sel="${esc(p.name)}">${esc(T("proj_set_active"))}</button>`}
+        <button class="btn small" data-proj-exp="${esc(p.name)}">${esc(T("btn_export"))}</button>
+        <button class="btn small" data-proj-cop="${esc(p.name)}">${esc(T("btn_copy"))}</button>
+        <button class="icon-btn repl-del" data-proj-del="${esc(p.name)}" title="${esc(T("btn_remove"))}">${IC.x}</button>
+      </span>
+    </div>`;
+  }).join("");
+}
+
+function pageProjects() {
+  const cur = (S.projects || []).find(p => p.name === cfg.current_project);
+  const headerBlock = cur ? `
+  <div class="group"><div class="group-title">${esc(T("proj_header_title"))}</div>
+    <textarea class="ta" id="proj-header" style="height:90px" spellcheck="false"
+      placeholder="${esc(T("proj_header_ph"))}">${esc(cur.header || "")}</textarea>
+    <div class="hint">${esc(T("proj_header_sub"))}</div>
+  </div>` : "";
+  return `<h1>${esc(T("tab_projects"))}</h1>
+  <div class="group"><div class="panel">
+    ${rowSwitch("projects_enabled", T("projects_enable"), T("projects_enable_sub"))}
+  </div></div>
+  <div class="group"><div class="group-title">${esc(T("grp_proj_list"))}</div>
+    <div class="repl-add">
+      <input class="txt" id="proj-new" placeholder="${esc(T("proj_new_ph"))}" spellcheck="false" maxlength="60">
+      <button class="btn" id="proj-add-btn">${esc(T("btn_add"))}</button>
+    </div>
+    <div class="panel repl-list" id="proj-list" style="margin-top:10px">${projItems()}</div>
+    <div class="hint">${esc(T("proj_remove_note"))}</div>
+  </div>
+  ${headerBlock}`;
+}
+
+/* ---- geschiedenis ---- */
+let histProj = null;     // gekozen project op de geschiedenis-pagina
+let histEntries = [];    // regels van dat project
+
+function histRecentItems() {
+  const h = S.history || [];
+  if (!h.length) return `<div class="repl-empty">${esc(T("hist_empty"))}</div>`;
+  return h.map((e, i) => `<div class="hist-item">
+      <span class="hist-time">${esc(e.t || "")}</span>
+      <span class="hist-text" title="${esc(e.text)}">${esc(e.text)}</span>
+      <button class="icon-btn" data-copy-hist="${i}" title="${esc(T("btn_copy"))}">${IC.copy}</button>
+    </div>`).join("");
+}
+
+function histEntryItems() {
+  if (!histEntries.length) return `<div class="repl-empty">${esc(T("proj_no_entries"))}</div>`;
+  return histEntries.map((r, i) => `<div class="hist-item">
+      <span class="hist-text mono" title="${esc(r)}">${esc(r)}</span>
+      <button class="icon-btn" data-copy-entry="${i}" title="${esc(T("btn_copy"))}">${IC.copy}</button>
+      <button class="icon-btn repl-del" data-del-entry="${i}" title="${esc(T("btn_remove"))}">${IC.x}</button>
+    </div>`).join("");
+}
+
+async function loadHistEntries(name) {
+  histProj = name || null;
+  try { histEntries = histProj ? await api().project_entries(histProj) : []; }
+  catch (_) { histEntries = []; }
+  const el = $("#hist-entries");
+  if (el) el.innerHTML = histEntryItems();
+}
+
+function pageHistory() {
+  const projs = S.projects || [];
+  let projBlock = "";
+  if (projs.length) {
+    const opts = projs.map(p =>
+      `<option value="${esc(p.name)}"${p.name === histProj ? " selected" : ""}>${esc(p.name)}</option>`).join("");
+    projBlock = `<div class="group"><div class="group-title">${esc(T("proj_entries_title"))}</div>
+      <select class="sel" id="hist-proj">${opts}</select>
+      <div class="panel repl-list" id="hist-entries" style="margin-top:10px">${histEntryItems()}</div>
+    </div>`;
+  }
+  return `<h1>${esc(T("tab_history"))}</h1>
+  <div class="group"><div class="group-title">${esc(T("hist_recent"))}</div>
+    <div class="panel repl-list" id="hist-recent">${histRecentItems()}</div>
+  </div>
+  ${projBlock}`;
+}
+
+function pageDiscord() {
+  const steps = String(T("dc_steps")).split("\n").map(s => s.replace(/^\d+\.\s*/,"")).filter(Boolean)
+    .map(s => `<li>${esc(s)}</li>`).join("");
+  return `<h1>Discord</h1>
+  <div class="group"><div class="group-title">${esc(T("grp_link"))}</div><div class="panel">
+    <div class="row"><div class="row-label">${esc(T("dc_id"))}</div>
+      <div class="row-ctl"><input class="txt mono" data-txt="discord_client_id" value="${esc(cfg.discord_client_id)}" spellcheck="false"></div></div>
+    <div class="row"><div class="row-label">${esc(T("dc_secret"))}</div>
+      <div class="row-ctl"><input class="txt mono" type="password" data-txt="discord_client_secret" value="${esc(cfg.discord_client_secret)}"></div></div>
+    ${rowButton(T("dc_note"), T("dc_link"), "discord_link", true)}
+  </div></div>
+  <div class="group"><div class="group-title">${esc(T("dc_setup_title"))}</div><div class="panel">
+    <ol class="steps">${steps}</ol>
+    <div class="row" style="border-top:1px solid var(--hair)"><div class="row-label"></div>
+      <div class="row-ctl"><button class="btn" data-act="dc_portal">${esc(T("dc_portal"))}&nbsp; ${IC.ext}</button></div></div>
+  </div></div>`;
+}
+
+function fmtMin(mins) { return mins >= 90 ? (mins/60).toFixed(1).replace(".0","") : String(Math.round(mins)); }
+function pageStats() {
+  const st = S.stats || {};
+  const mins = (st.seconds||0)/60;
+  const saved = Math.max(0, (st.words||0)/40 - mins);
+  const audioUnit = mins >= 90 ? T("unit_hour") : "min";
+  const savedUnit = saved >= 90 ? T("unit_hour") : "min";
+  return `<h1>${esc(T("tab_stats"))}</h1>
+  <div class="group"><div class="panel">
+    <div class="stat-row"><div class="row-label">${esc(T("st_dictations"))}</div><div class="stat-val">${(st.dictations||0).toLocaleString()}</div></div>
+    <div class="stat-row"><div class="row-label">${esc(T("st_words"))}</div><div class="stat-val">${(st.words||0).toLocaleString()}</div></div>
+    <div class="stat-row"><div class="row-label">${esc(T("st_audio"))}</div><div class="stat-val">${fmtMin(mins)}<small>${audioUnit}</small></div></div>
+    <div class="stat-row"><div class="row-label">${esc(T("st_saved"))}</div><div class="stat-val">&#8776; ${fmtMin(saved)}<small>${savedUnit}</small></div></div>
+  </div></div>`;
+}
+
+function pageSystem() {
+  return `<h1>${esc(T("tab_system"))}</h1>
+  <div class="group"><div class="group-title">${esc(T("grp_behavior"))}</div><div class="panel">
+    ${rowSwitch("_autostart", T("autostart"))}
+    ${rowSwitch("history", T("history"))}
+    ${rowSwitch("restore_clipboard", T("restore_clip"))}
+    ${rowSwitch("show_settings_on_start", T("show_start"))}
+    ${rowSwitch("check_updates", T("check_updates"))}
+    ${rowButton(T("shortcut"), T("btn_create"), "shortcut", false)}
+    ${rowButton(T("menu_config"), T("btn_open"), "open_config", false)}
+    ${rowButton(T("menu_log"), T("btn_open"), "open_log", false)}
+  </div></div>
+  <div class="group"><div class="group-title">${esc(T("backup_title"))}</div><div class="panel">
+    ${rowButton(T("backup"), T("btn_backup"), "backup", false)}
+    ${rowButton(T("restore"), T("btn_restore"), "restore", false)}
+    ${rowButton(T("export_dict"), T("btn_export"), "export", false)}
+    ${rowButton(T("copy_dict"), T("btn_copy"), "copy", false)}
+  </div></div>`;
+}
+
+const RENDER = { general:pageGeneral, recording:pageRecording, dict:pageDict,
+                 projects:pageProjects, history:pageHistory, discord:pageDiscord,
+                 stats:pageStats, system:pageSystem };
+
+/* projectwijzigingen zijn direct doorgevoerd; snapshot bijwerken zodat de
+   opslaan-balk hierdoor niet verschijnt */
+function applyProj(res) {
+  if (!res) return;
+  S.projects = res.projects || [];
+  cfg.current_project = res.current || "";
+  if (S.cfg) S.cfg.current_project = cfg.current_project;
+  try {
+    const o = JSON.parse(orig);
+    o.current_project = cfg.current_project;
+    orig = JSON.stringify(o);
+  } catch (_) {}
+  const sec = $('[data-pageid="projects"]');
+  if (sec) sec.innerHTML = pageProjects();
+  updateDirty();
+}
+
+/* ============================================================
+   Render & events
+   ============================================================ */
+function renderAll() {
+  renderNav();
+  $("#ver").textContent = S.version || "";
+  $("#pages").innerHTML = PAGES.map(([id]) =>
+    `<section class="page${id===activePage?" active":""}" data-pageid="${id}">${RENDER[id]()}</section>`).join("");
+  $("#btn-save").textContent = T("save");
+  $("#btn-undo").textContent = T("undo");
+  $("#savebar-msg").textContent = T("unsaved");
+  updateModeSub(); updateSeg(); updateUpdatePill(); updateMuteStatus(); updateDirty();
+}
+
+function updateSeg() {
+  $$('[data-seg="mode"] button').forEach(b =>
+    b.classList.toggle("active", b.dataset.v === cfg.mode));
+}
+function updateModeSub() {
+  const el = $("#mode-sub");
+  if (el) el.textContent = cfg.mode === "hold" ? T("mode_hold") : T("mode_toggle");
+}
+function updateUpdatePill() {
+  const pill = $("#update-pill");
+  if (S.update && S.update.tag) {
+    pill.style.display = "flex";
+    $("#update-txt").textContent = `${T("update_available")}: ${S.update.tag}`;
+  } else pill.style.display = "none";
+}
+
+function collect() {
+  const vocabEl = $("#vocab");
+  return { ...cfg, vocab: vocabEl ? vocabEl.value.split("\n").map(s=>s.trim()).filter(Boolean)
+                                  : (S.vocab || []) };
+}
+function snapshot() { orig = JSON.stringify(collect()); }
+function updateDirty() {
+  $("#savebar").classList.toggle("show", JSON.stringify(collect()) !== orig);
+}
+function markDirty() { updateDirty(); }
+
+let toastTimer = null;
+function toast(msg) {
+  $("#toast-txt").textContent = msg;
+  $("#toast").classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 2200);
+}
+
+function applyState(st) {
+  S = st;
+  cfg = { ...st.cfg, _autostart: !!st.autostart };
+  delete cfg.vocabulary; delete cfg.replacements;
+  activePage = activePage || "general";
+  renderAll();
+  snapshot(); updateDirty();
+}
+
+async function loadState() {
+  try { applyState(await api().state()); }
+  catch (e) { console.error(e); }
+}
+
+async function doSave() {
+  const data = collect();
+  try {
+    const st = await api().save(data);
+    applyState(st);
+    toast(T("saved"));
+  } catch (e) { console.error(e); }
+}
+
+/* microfoontest */
+let micTimer = null;
+async function stopMicTest() {
+  if (micTimer) { clearInterval(micTimer); micTimer = null; }
+  const b = $("#mic-test-btn"); if (b) b.textContent = "Start";
+  const f = $("#mic-fill"); if (f) f.style.width = "0%";
+  try { await api().mic_test_stop(); } catch (_) {}
+}
+async function startMicTest() {
+  let ok = false;
+  try { ok = await api().mic_test_start(cfg.input_device); } catch (_) {}
+  if (!ok) return;
+  const b = $("#mic-test-btn"); if (b) b.textContent = "Stop";
+  micTimer = setInterval(async () => {
+    try {
+      const lvl = await api().mic_level();
+      if (lvl < 0) { stopMicTest(); return; }
+      const f = $("#mic-fill");
+      if (f) f.style.width = Math.round(Math.min(1, lvl) * 100) + "%";
+    } catch (_) { stopMicTest(); }
+  }, 120);
+}
+
+/* sneltoets vastleggen */
+let capture = null; // {key, el, handler}
+function stopCapture(restore) {
+  if (!capture) return;
+  window.removeEventListener("keydown", capture.handler, true);
+  const { key, el } = capture; capture = null;
+  el.classList.remove("capturing");
+  el.innerHTML = kbdHtml(cfg[key]);
+  try { api().hotkeys_resume(); } catch (_) {}
+}
+function startCapture(el, key) {
+  stopCapture();
+  try { api().hotkeys_suspend(); } catch (_) {}
+  el.classList.add("capturing");
+  el.innerHTML = `<span class="cap-hint">${esc(T("press_keys"))}</span>`;
+  const handler = e => {
+    e.preventDefault(); e.stopPropagation();
+    if (e.key === "Escape") { stopCapture(); return; }
+    const k = e.key.toLowerCase();
+    if (["control","shift","alt","meta"].includes(k)) return;
+    const mods = [];
+    if (e.ctrlKey) mods.push("ctrl");
+    if (e.altKey) mods.push("alt");
+    if (e.shiftKey) mods.push("shift");
+    if (e.metaKey) mods.push("windows");
+    let name = k === " " ? "space" : k;
+    cfg[key] = [...mods, name].join("+");
+    stopCapture();
+    markDirty();
+  };
+  capture = { key, el, handler };
+  window.addEventListener("keydown", handler, true);
+}
+function hotkeyAsText(btn, key) {
+  stopCapture();
+  const wrap = btn.parentElement;
+  wrap.innerHTML = `<input class="txt mono" data-hkinput="${key}" value="${esc(cfg[key])}" spellcheck="false">`;
+  const inp = wrap.querySelector("input");
+  inp.focus(); inp.select();
+  const done = () => {
+    cfg[key] = inp.value.trim();
+    wrap.innerHTML = `<button class="hk" data-hk="${key}" title="${esc(T("hk_click"))}">${kbdHtml(cfg[key])}</button>
+      <button class="icon-btn" data-hktext="${key}" title="${esc(T("edit_text"))}">${IC.pencil}</button>`;
+    markDirty();
+  };
+  inp.addEventListener("blur", done);
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") inp.blur(); });
+}
+
+/* acties (knoppen) */
+const ACTIONS = {
+  discord_link: async () => {
+    // eerst niet-opgeslagen ID/secret meenemen
+    if (JSON.stringify(collect()) !== orig) await doSave();
+    await api().discord_link();
+  },
+  dc_portal: () => api().open_url("https://discord.com/developers/applications"),
+  shortcut:  () => api().make_shortcut(),
+  backup:    () => api().backup(),
+  restore:   async () => { await api().restore(); loadState(); },
+  export:    () => api().export(),
+  copy:      () => api().copy_dictations(),
+  open_config: () => api().open_config(),
+  open_log:    () => api().open_log(),
+};
+
+/* event-delegatie */
+document.addEventListener("click", async e => {
+  const t = e.target;
+  const kofi = t.closest("#kofi");
+  if (kofi) { e.preventDefault(); api().open_url(kofi.href); return; }
+  const swEl = t.closest("[data-sw]");
+  if (swEl) {
+    const k = swEl.dataset.sw;
+    cfg[k] = !cfg[k];
+    swEl.setAttribute("aria-checked", String(!!cfg[k]));
+    if (k === "mute_other_apps") updateMuteStatus();
+    markDirty(); return;
+  }
+  const seg = t.closest("[data-seg] button");
+  if (seg) {
+    cfg[seg.closest("[data-seg]").dataset.seg] = seg.dataset.v;
+    updateSeg(); updateModeSub(); markDirty(); return;
+  }
+  const nav = t.closest("[data-page]");
+  if (nav) {
+    if (micTimer) stopMicTest();
+    activePage = nav.dataset.page;
+    $$(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.page === activePage));
+    $$(".page").forEach(p => p.classList.toggle("active", p.dataset.pageid === activePage));
+    if (activePage === "stats") { try { S.stats = await api().stats();
+      $('[data-pageid="stats"]').innerHTML = pageStats(); } catch(_){} }
+    if (activePage === "history") {
+      try { S.history = await api().history();
+        const el = $("#hist-recent"); if (el) el.innerHTML = histRecentItems();
+      } catch (_) {}
+      const namen = (S.projects || []).map(p => p.name);
+      const def = namen.includes(histProj) ? histProj
+                : (namen.includes(cfg.current_project) ? cfg.current_project : namen[0]);
+      if (def) loadHistEntries(def);
+    }
+    return;
+  }
+  if (t.closest("#mic-test-btn")) { micTimer ? stopMicTest() : startMicTest(); return; }
+  const ch = t.closest("[data-copy-hist]");
+  if (ch) {
+    const e2 = (S.history || [])[+ch.dataset.copyHist];
+    if (e2) { api().copy_text(e2.text || ""); toast(T("n_copied_one")); }
+    return;
+  }
+  const ce = t.closest("[data-copy-entry]");
+  if (ce) {
+    api().copy_text(histEntries[+ce.dataset.copyEntry] || "");
+    toast(T("n_copied_one")); return;
+  }
+  const de2 = t.closest("[data-del-entry]");
+  if (de2) {
+    histEntries = await api().project_entry_remove(histProj, +de2.dataset.delEntry);
+    const el = $("#hist-entries"); if (el) el.innerHTML = histEntryItems();
+    const p = (S.projects || []).find(x => x.name === histProj);
+    if (p) p.count = histEntries.length;  // teller op projectpagina actueel houden
+    return;
+  }
+  const hk = t.closest("[data-hk]");
+  if (hk) { startCapture(hk, hk.dataset.hk); return; }
+  const hktext = t.closest("[data-hktext]");
+  if (hktext) { hotkeyAsText(hktext, hktext.dataset.hktext); return; }
+  const del = t.closest("[data-repl-del]");
+  if (del) {
+    S.repl = await api().repl_remove(del.dataset.replDel);
+    $("#repl-list").innerHTML = replItems(); return;
+  }
+  if (t.closest("#repl-add-btn")) {
+    const a = $("#repl-a").value.trim(), b = $("#repl-b").value.trim();
+    if (!a) return;
+    S.repl = await api().repl_add(a, b);
+    $("#repl-a").value = ""; $("#repl-b").value = "";
+    $("#repl-list").innerHTML = replItems(); return;
+  }
+  const psel = t.closest("[data-proj-sel]");
+  if (psel) { applyProj(await api().project_select(psel.dataset.projSel)); return; }
+  const pdel = t.closest("[data-proj-del]");
+  if (pdel) { applyProj(await api().project_remove(pdel.dataset.projDel)); return; }
+  const pexp = t.closest("[data-proj-exp]");
+  if (pexp) { api().project_export(pexp.dataset.projExp); return; }
+  const pcop = t.closest("[data-proj-cop]");
+  if (pcop) { api().project_copy(pcop.dataset.projCop); return; }
+  if (t.closest("#proj-add-btn")) {
+    const nm = $("#proj-new").value.trim();
+    if (!nm) return;
+    applyProj(await api().project_add(nm));
+    $("#proj-new").value = "";
+    return;
+  }
+  const act = t.closest("[data-act]");
+  if (act && ACTIONS[act.dataset.act]) { ACTIONS[act.dataset.act](); return; }
+  if (t.closest("#btn-save")) { doSave(); return; }
+  if (t.closest("#btn-undo")) { applyState(S); return; }
+  if (t.closest("#update-pill") && S.update) { api().open_url(S.update.url); return; }
+  if (capture && !t.closest(".hk")) stopCapture();
+});
+
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t.id === "proj-header") {
+    const p = (S.projects || []).find(x => x.name === cfg.current_project);
+    if (p) p.header = t.value;
+    api().project_set_header(cfg.current_project, t.value);
+  }
+});
+
+window.addEventListener("blur", () => stopCapture());
+
+document.addEventListener("input", e => {
+  const t = e.target;
+  if (t.id === "hist-proj") { loadHistEntries(t.value); return; }
+  if (t.dataset.sel) {
+    cfg[t.dataset.sel] = t.value;
+    if (t.dataset.sel === "input_device") updateMuteStatus();
+    markDirty();
+  }
+  if (t.dataset.txt) { cfg[t.dataset.txt] = t.value; markDirty(); }
+  if (t.dataset.range) {
+    cfg[t.dataset.range] = Math.round(parseFloat(t.value) * 100) / 100;
+    const v = $("#beepval"); if (v) v.textContent = Math.round(parseFloat(t.value)*100) + "%";
+    markDirty();
+  }
+  if (t.id === "vocab") markDirty();
+});
+
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey && e.key.toLowerCase() === "s" && !capture) {
+    e.preventDefault();
+    if (JSON.stringify(collect()) !== orig) doSave();
+  }
+});
+
+/* Python kan dit aanroepen als het venster opnieuw wordt getoond */
+window.__refresh = () => loadState();
+
+if (window.pywebview && window.pywebview.api) loadState();
+else window.addEventListener("pywebviewready", loadState);
+/* browser-preview zonder pywebview */
+setTimeout(() => { if (!S) loadState(); }, 700);
+</script>
+</body>
+</html>
